@@ -114,7 +114,7 @@ notes (exercise_key, note, checked) as (values
   ('dips',                    '4×8, went well.',                                       true),
   ('overhead_press',          'Right amount of weight. Completed.',                    true),
   ('push_ups',                'Tough. Failed on the last set at 10.',                  true),
-  ('single_arm_bent_row',     'Not done — this session still had the floor press that day.', false),
+  ('single_arm_bent_row',     'This session still had the floor press that day.', false),
   ('finisher_highpull_pushup','Good, but had no push-ups left. Did them on my knees.',  true)
 )
 insert into public.training_log_items

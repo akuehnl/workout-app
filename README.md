@@ -3,8 +3,10 @@
 Private single-user workout web app. Five-session kettlebell program, read on a
 phone browser. No login, no accounts.
 
-Step 1 of 3: the shell deploys, opens straight to the app, and the whole
-program is readable. The runner, the log and streaks come in Steps 2 and 3.
+Steps 1 and 2 of 3: the program is readable, the app hands you whichever
+session you have gone longest without doing, runs you through it on a live
+countdown one movement at a time, and logs every line with its own note.
+Streaks is Step 3.
 
 ## Setup
 
@@ -22,8 +24,12 @@ instead of quietly seeding into the other app's tables. If you see
 1. supabase.com -> New project.
 2. SQL Editor -> paste all of `supabase/001_schema.sql` -> Run.
 3. New query -> paste all of `supabase/002_seed.sql` -> Run.
-4. Project Settings -> API -> copy the **Project URL** and the **anon public**
+4. New query -> paste all of `supabase/003_log_schema.sql` -> Run.
+5. New query -> paste all of `supabase/004_seed_history.sql` -> Run.
+6. Project Settings -> API -> copy the **Project URL** and the **anon public**
    key.
+
+Run them in order. Each file refuses to run if the one before it hasn't.
 
 ### 2. Local
 
@@ -62,3 +68,11 @@ published bundle. That's expected here. Keep the repo private.
 - The phase is computed from `settings.program_start`, never stored. It moves
   every 4 weeks on the clock regardless of how many sessions you've done.
 - Design tokens live in the `@theme` block at the top of `src/index.css`.
+- There is no schedule and no dates. The queue rule is one line: hand back the
+  session gone longest without completion. Nothing is ever "missed".
+- The runner clock is derived from a wall-clock timestamp rather than counted
+  down by an interval, so backgrounding the tab or locking the phone doesn't
+  make it drift.
+- `localStorage` holds one key, `workout:run:v1`, as a crash-safety cache for
+  an in-progress run. It is cleared the moment the session is saved. Supabase
+  stays the source of truth.

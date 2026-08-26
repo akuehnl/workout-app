@@ -92,3 +92,42 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The completion moment. One quiet transition when Done is tapped: the button
+   settles into an accent check, and the next movement rises into its place.
+   The global prefers-reduced-motion rule above collapses both to nothing.
+   --------------------------------------------------------------------------- */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes check-in {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-card-in {
+  animation: card-in 260ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.animate-check-in {
+  animation: check-in 300ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}

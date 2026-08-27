@@ -4,7 +4,11 @@ import { SECTIONS, type Block, type SectionName, type Workout } from './types'
 export type TrainingLog = {
   id: string
   date: string
-  workout_id: string
+  /** Null for a session done outside the program ("went climbing"). Those
+   *  count toward the week but say nothing about which session is up next. */
+  workout_id: string | null
+  /** The name of an ad-hoc session. Null for one of the five. */
+  title: string | null
   phase: number
   started_at: string | null
   completed_at: string | null
@@ -47,6 +51,7 @@ export function flattenWorkout(workout: Workout): FlatBlock[] {
 export function lastDoneByWorkout(logs: TrainingLog[]): Map<string, string> {
   const map = new Map<string, string>()
   for (const log of logs) {
+    if (!log.workout_id) continue // ad-hoc: belongs to no session in the program
     const current = map.get(log.workout_id)
     if (!current || log.date > current) map.set(log.workout_id, log.date)
   }
@@ -188,4 +193,94 @@ export function relativeDay(iso: string, now: Date = new Date()): string {
   if (days < 14) return `${days} days ago`
   const weeks = Math.floor(days / 7)
   return weeks < 8 ? `${weeks} weeks ago` : `${Math.floor(days / 30)} months ago`
+}
+
+
+/** Save edits to one logged session. Only the fields the edit screen exposes. */
+export async function updateLog(
+  logId: string,
+  patch: { date?: string; session_notes?: string; title?: string | null; total_seconds?: number | null },
+): Promise<void> {
+  const { error } = await supabase.from('training_log').update(patch).eq('id', logId)
+  if (error) throw new Error(error.message)
+}
+
+/** Save edits to the per-line rows of one session. */
+export async function updateLogItems(
+  items: { id: string; checked: boolean; notes: string }[],
+): Promise<void> {
+  // Supabase has no bulk-update-by-row, and these are at most ~12 rows, so
+  // individual updates are simpler than an upsert that could resurrect a
+  // deleted row.
+  const results = await Promise.all(
+    items.map((item) =>
+      supabase
+        .from('training_log_items')
+        .update({ checked: item.checked, notes: item.notes })
+        .eq('id', item.id),
+    ),
+  )
+  const failed = results.find((r) => r.error)
+  if (failed?.error) throw new Error(failed.error.message)
+}
+
+/** Remove a logged session. training_log_items cascades, so its lines go too. */
+export async function deleteLog(logId: string): Promise<void> {
+  const { error } = await supabase.from('training_log').delete().eq('id', logId)
+  if (error) throw new Error(error.message)
+}
+
+/** Log a session done away from the app.
+ *
+ *  Pass workoutId when it was one of the five -- it then feeds the queue like
+ *  any other session. Leave it null and give a title for anything else; that
+ *  still counts toward the week.
+ *
+ *  When it maps to one of the five, its lines are created too (unchecked, no
+ *  splits) so the entry can be opened and filled in afterwards. */
+export async function addAdHocLog(input: {
+  date: string
+  phase: number
+  workoutId: string | null
+  title: string | null
+  totalSeconds: number | null
+  sessionNotes: string
+  blocks: FlatBlock[]
+}): Promise<string> {
+  const { data, error } = await supabase
+    .from('training_log')
+    .insert({
+      date: input.date,
+      workout_id: input.workoutId,
+      title: input.title,
+      phase: input.phase,
+      started_at: null,
+      completed_at: null,
+      total_seconds: input.totalSeconds,
+      session_notes: input.sessionNotes,
+    })
+    .select('id')
+    .single()
+
+  if (error) throw new Error(error.message)
+  const logId = data.id as string
+
+  if (input.blocks.length > 0) {
+    const { error: itemsError } = await supabase.from('training_log_items').insert(
+      input.blocks.map((b) => ({
+        training_log_id: logId,
+        exercise_key: b.exercise_key,
+        sort_order: b.ord,
+        checked: true,
+        split_seconds: null,
+        notes: '',
+      })),
+    )
+    if (itemsError) {
+      await supabase.from('training_log').delete().eq('id', logId)
+      throw new Error(itemsError.message)
+    }
+  }
+
+  return logId
 }

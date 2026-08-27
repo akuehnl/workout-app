@@ -6,6 +6,8 @@ import WorkoutDetail from './screens/WorkoutDetail'
 import Streaks from './screens/Streaks'
 import Run from './screens/Run'
 import Log from './screens/Log'
+import LogEntry from './screens/LogEntry'
+import LogNew from './screens/LogNew'
 
 export default function App() {
   // The runner is full-screen: no tab bar competing for thumb room, and no way
@@ -20,6 +22,8 @@ export default function App() {
           <Route path="/" element={<Navigate to="/today" replace />} />
           <Route path="/today" element={<Today />} />
           <Route path="/log" element={<Log />} />
+          <Route path="/log/new" element={<LogNew />} />
+          <Route path="/log/:logId" element={<LogEntry />} />
           <Route path="/run/:sortOrder" element={<Run />} />
           <Route path="/program" element={<Program />} />
           <Route path="/program/:sortOrder" element={<WorkoutDetail />} />

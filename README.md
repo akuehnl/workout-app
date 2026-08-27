@@ -3,10 +3,10 @@
 Private single-user workout web app. Five-session kettlebell program, read on a
 phone browser. No login, no accounts.
 
-Steps 1 and 2 of 3: the program is readable, the app hands you whichever
-session you have gone longest without doing, runs you through it on a live
-countdown one movement at a time, and logs every line with its own note.
-Streaks is Step 3.
+All three steps: the program is readable, the app hands you whichever session
+you have gone longest without doing, runs you through it on a live countdown
+one movement at a time, logs every line with its own note, and counts whether
+you are actually keeping it up.
 
 ## Setup
 
@@ -26,7 +26,8 @@ instead of quietly seeding into the other app's tables. If you see
 3. New query -> paste all of `supabase/002_seed.sql` -> Run.
 4. New query -> paste all of `supabase/003_log_schema.sql` -> Run.
 5. New query -> paste all of `supabase/004_seed_history.sql` -> Run.
-6. Project Settings -> API -> copy the **Project URL** and the **anon public**
+6. New query -> paste all of `supabase/005_adhoc_sessions.sql` -> Run.
+7. Project Settings -> API -> copy the **Project URL** and the **anon public**
    key.
 
 Run them in order. Each file refuses to run if the one before it hasn't.
@@ -73,6 +74,12 @@ published bundle. That's expected here. Keep the repo private.
 - The runner clock is derived from a wall-clock timestamp rather than counted
   down by an interval, so backgrounding the tab or locking the phone doesn't
   make it drift.
+- The streak is weekly, not daily: did the week reach four sessions? Weeks run
+  Monday to Sunday, which is what program_start is, so a week never straddles
+  a phase change. A week still in progress is never counted as a break.
+- A session done away from the app can be logged by hand. Mapped to one of the
+  five it also feeds the queue; logged as "something else" it counts toward the
+  week only.
 - `localStorage` holds one key, `workout:run:v1`, as a crash-safety cache for
   an in-progress run. It is cleared the moment the session is saved. Supabase
   stays the source of truth.

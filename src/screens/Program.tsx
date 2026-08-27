@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useProgram } from '../lib/useProgram'
 import { projectRef } from '../lib/supabase'
+import { BUILD_ID } from '../lib/version'
 import { formatStamp } from '../lib/time'
 import { PHASE_4_COMPLETE_MESSAGE } from '../lib/phase'
 import { Card, ErrorState, Loading, PhaseBadge, Screen } from '../components/Ui'
@@ -63,6 +64,8 @@ export default function Program() {
 
       <p className="mt-8 text-center text-label text-faint">
         Supabase project <span className="font-[family-name:var(--font-stamp)]">{projectRef}</span>
+        {' · build '}
+        <span className="font-[family-name:var(--font-stamp)]">{BUILD_ID}</span>
       </p>
     </Screen>
   )

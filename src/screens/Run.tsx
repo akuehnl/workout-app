@@ -2,7 +2,13 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useProgram } from '../lib/useProgram'
 import { variationFor } from '../lib/phase'
-import { flattenWorkout, localDateString, saveRun, type FlatBlock } from '../lib/log'
+import {
+  flattenWorkout,
+  localDateString,
+  nextDistinctStamp,
+  saveRun,
+  type FlatBlock,
+} from '../lib/log'
 import { formatStamp, formatStampPadded } from '../lib/time'
 import type { Movement, Workout } from '../lib/types'
 import {
@@ -12,13 +18,15 @@ import {
   goBack,
   isFinished,
   loadRun,
+  bumpCount,
   markDone,
-  paceSeconds,
+  noteWithCount,
   pause,
   persistRun,
   reconcile,
   remainingSeconds,
   resume,
+  secondsLeftOnCurrent,
   setNote,
   skip,
   toggleItem,
@@ -108,7 +116,17 @@ function RunSession({
   const finished = isFinished(run)
   const current = finished ? null : blocks[run.index]!
   const remaining = remainingSeconds(run, now)
-  const pace = current ? paceSeconds(run, now, current.start_remaining_seconds) : null
+
+  // From the notes: the small clock should show when the NEXT line is due and
+  // how long is left on this one -- not the stamp this line was meant to start
+  // at, which has already gone by and can't be acted on.
+  const nextStartRemaining = finished ? null : nextDistinctStamp(blocks, run.index)
+  // 0 means nothing comes after this block -- it runs to the end of the session.
+  const isLast = nextStartRemaining === 0
+  const leftOnCurrent =
+    current && nextStartRemaining !== null
+      ? secondsLeftOnCurrent(run, now, nextStartRemaining)
+      : null
 
   // Keep the travelling clock where the eye already is when it moves down.
   useEffect(() => {
@@ -147,7 +165,7 @@ function RunSession({
           sort_order: blocks[i]!.ord,
           checked: item.checked,
           split_seconds: item.split_seconds,
-          notes: item.notes,
+          notes: noteWithCount(item, blocks[i]!.counter?.label),
         })),
       })
       clearRun()
@@ -279,7 +297,9 @@ function RunSession({
     <div ref={clockRef}>
       <ClockBar
         remaining={remaining}
-        pace={pace}
+        leftOnCurrent={leftOnCurrent}
+        nextStartRemaining={nextStartRemaining}
+        isLast={isLast}
         paused={paused}
         onTogglePause={() =>
           setRun((r) => (r.pausedAtMs !== null ? resume(r, Date.now()) : pause(r, Date.now())))
@@ -328,6 +348,8 @@ function RunSession({
           note={item.notes}
           onNote={(v) => setRun((r) => setNote(r, r.index, v))}
           index={run.index}
+          count={item.count}
+          onBump={(delta) => setRun((r) => bumpCount(r, r.index, delta))}
         />
 
         <button

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FlatBlock } from '../lib/log'
 import type { Movement } from '../lib/types'
-import { formatClock, formatSigned, formatStampPadded } from '../lib/time'
+import { formatClock, formatStampPadded } from '../lib/time'
 import type { PersistedRun } from '../lib/runner'
 import { WatchLink } from './Ui'
 
@@ -16,16 +16,21 @@ import { WatchLink } from './Ui'
    --------------------------------------------------------------------------- */
 export function ClockBar({
   remaining,
-  pace,
+  leftOnCurrent,
+  nextStartRemaining,
+  isLast,
   paused,
   onTogglePause,
 }: {
   remaining: number
-  pace: number | null
+  /** Seconds before the NEXT line is due. Negative once this one runs long. */
+  leftOnCurrent: number | null
+  nextStartRemaining: number | null
+  isLast: boolean
   paused: boolean
   onTogglePause: () => void
 }) {
-  const ahead = pace !== null && pace >= 0
+  const onTime = leftOnCurrent !== null && leftOnCurrent >= 0
   return (
     <div className="sticky top-0 z-20 -mx-4 mb-2 border-y border-line bg-page/95 px-4 py-2 backdrop-blur">
       <div className="mx-auto flex w-full max-w-xl items-center gap-3">
@@ -35,15 +40,7 @@ export function ClockBar({
         >
           {formatClock(remaining)}
         </span>
-
-        {pace !== null && (
-          <span
-            className={`text-small font-medium tabular-nums ${ahead ? 'text-accent' : 'text-faint'}`}
-            title={ahead ? 'Ahead of the target time' : 'Behind the target time'}
-          >
-            {formatSigned(pace)}
-          </span>
-        )}
+        <span className="text-label text-faint">left</span>
 
         <button
           type="button"
@@ -53,6 +50,31 @@ export function ClockBar({
           {paused ? 'Resume' : 'Pause'}
         </button>
       </div>
+
+      {leftOnCurrent !== null && (
+        <p className="mx-auto w-full max-w-xl pb-0.5 text-small">
+          <span
+            className={`font-[family-name:var(--font-stamp)] font-medium tabular-nums ${
+              onTime ? 'text-accent' : 'text-faint'
+            }`}
+          >
+            {formatClock(leftOnCurrent)}
+          </span>{' '}
+          <span className="text-muted">
+            {onTime ? 'on this one' : 'over on this one'}
+            {!isLast && nextStartRemaining !== null && (
+              <>
+                {' · next at '}
+                <span className="font-[family-name:var(--font-stamp)] tabular-nums">
+                  {formatStampPadded(nextStartRemaining)}
+                </span>
+              </>
+            )}
+            {isLast && ' · then the session is done'}
+          </span>
+        </p>
+      )}
+
       {paused && (
         <p className="mx-auto w-full max-w-xl pb-1 text-label text-faint">Clock paused</p>
       )}
@@ -110,6 +132,8 @@ export function FocusCard({
   note,
   onNote,
   index,
+  count,
+  onBump,
 }: {
   block: FlatBlock
   movement: Movement | undefined
@@ -117,6 +141,8 @@ export function FocusCard({
   note: string
   onNote: (v: string) => void
   index: number
+  count?: number
+  onBump?: (delta: number) => void
 }) {
   const [showDescription, setShowDescription] = useState(false)
 
@@ -132,9 +158,7 @@ export function FocusCard({
         <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
           {block.section}
         </span>
-        <span className="font-[family-name:var(--font-stamp)] text-small tabular-nums text-faint">
-          target {formatStampPadded(block.start_remaining_seconds)}
-        </span>
+        {block.rest && <span className="text-small text-muted">Rest {block.rest}</span>}
       </div>
 
       <div className="mt-1 flex items-baseline justify-between gap-2">
@@ -172,7 +196,61 @@ export function FocusCard({
         </>
       )}
 
+      {block.counter && onBump && (
+        <Counter label={block.counter.label} value={count ?? 0} onBump={onBump} />
+      )}
+
       <NoteField value={note} onChange={onNote} label={block.name} />
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------------------
+   The tally, for Cindy's rounds.
+
+   From the notes: "Cindy should have a button to count rounds. smaller button
+   that reduces number by 1 in case you press twice?" -- so the +1 is the big
+   sweaty-thumb target and the -1 is deliberately small and off to the side,
+   because it only exists to undo a mis-tap.
+   --------------------------------------------------------------------------- */
+export function Counter({
+  label,
+  value,
+  onBump,
+}: {
+  label: string
+  value: number
+  onBump: (delta: number) => void
+}) {
+  return (
+    <div className="mt-3 flex items-center gap-3 rounded-card bg-sunken p-3">
+      <div className="min-w-0 flex-1">
+        <span className="block font-[family-name:var(--font-stamp)] text-display font-semibold tabular-nums leading-none">
+          {value}
+        </span>
+        <span className="mt-1 block text-small text-muted">{label} so far</span>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onBump(-1)}
+        disabled={value === 0}
+        aria-label={`One fewer ${label}`}
+        className="flex size-11 shrink-0 items-center justify-center rounded-card border
+                   border-line-strong bg-surface text-body text-muted active:bg-sunken
+                   disabled:opacity-30"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        onClick={() => onBump(1)}
+        aria-label={`One more ${label}`}
+        className="flex min-h-16 flex-1 items-center justify-center rounded-card bg-accent
+                   text-heading font-semibold text-white active:opacity-90"
+      >
+        +1 {label.replace(/s$/, '')}
+      </button>
     </div>
   )
 }
@@ -234,7 +312,10 @@ export function ListRow({
               {formatStampPadded(block.start_remaining_seconds)}
             </span>
           </div>
-          <p className="text-small text-muted">{block.prescription}</p>
+          <p className="text-small text-muted">
+            {block.prescription}
+            {block.rest && <span className="text-faint"> · rest {block.rest}</span>}
+          </p>
           <NoteField value={item.notes} onChange={onNote} label={block.name} />
         </div>
       </div>

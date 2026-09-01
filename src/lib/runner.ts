@@ -11,6 +11,10 @@ export type RunItemState = {
   checked: boolean
   split_seconds: number | null
   notes: string
+  /** Tally for lines that carry a counter (Cindy's rounds). Written to the
+   *  top of the note when the session is saved, which is where the best-ever
+   *  figure is read back from. */
+  count?: number
 }
 
 export type RunView = 'focus' | 'list'
@@ -226,6 +230,38 @@ export function toggleItem(run: PersistedRun, nowMs: number, i: number): Persist
 
 export function setNote(run: PersistedRun, i: number, notes: string): PersistedRun {
   return { ...run, items: run.items.map((it, k) => (k === i ? { ...it, notes } : it)) }
+}
+
+/** Nudge a counter. Never goes below zero -- the -1 exists to undo a
+ *  double-tap, not to go negative. */
+export function bumpCount(run: PersistedRun, i: number, delta: number): PersistedRun {
+  return {
+    ...run,
+    items: run.items.map((it, k) =>
+      k === i ? { ...it, count: Math.max(0, (it.count ?? 0) + delta) } : it,
+    ),
+  }
+}
+
+/** The note as it should be stored: a counter's tally goes on the first line
+ *  so it reads back as "12 rounds" and can be parsed out again. */
+export function noteWithCount(
+  item: RunItemState,
+  counterLabel: string | null | undefined,
+): string {
+  if (!counterLabel || item.count === undefined) return item.notes
+  return `${item.count} ${counterLabel}
+${item.notes}`.trim()
+}
+
+/** Seconds left before the NEXT line is due to start. Negative once this line
+ *  has run long. The last line counts down to the end of the session. */
+export function secondsLeftOnCurrent(
+  run: PersistedRun,
+  nowMs: number,
+  nextStartRemaining: number,
+): number {
+  return remainingSeconds(run, nowMs) - nextStartRemaining
 }
 
 export function isFinished(run: PersistedRun): boolean {

@@ -284,3 +284,108 @@ export async function addAdHocLog(input: {
 
   return logId
 }
+
+/* ---------------------------------------------------------------------------
+   Muscle-group spacing.
+
+   From the notes: "Cindy after upper body is tough. Should be after a rest
+   day? Or a better day that the app suggests."
+
+   Staleness alone can hand back a session that repeats what was trained
+   yesterday -- Cindy is 100 push-ups and 100 pull-ups, so it lands badly the
+   day after Upper push. So: keep the staleness order, but when the last
+   session was recent, skip past any candidate that overlaps it too heavily
+   and take the next one down the list.
+
+   Nothing is ever missed by this. A deferred session doesn't lose its place;
+   it stays stale and comes up as soon as the overlap has aged out.
+   --------------------------------------------------------------------------- */
+
+/** Shared tags counts as overlap at 2+. One shared pattern is normal -- almost
+ *  every session hinges or presses something. Two or more means the same work. */
+export const OVERLAP_LIMIT = 2
+
+/** Only space sessions out when the last one was yesterday or today. Give it a
+ *  day off and soreness is no longer the binding constraint. */
+export const SPACING_WINDOW_DAYS = 1
+
+export function sharedTags(a: Workout, b: Workout): string[] {
+  const set = new Set(a.muscle_tags ?? [])
+  return (b.muscle_tags ?? []).filter((t) => set.has(t))
+}
+
+export type NextPick = {
+  workout: Workout | null
+  /** Set when the stalest session was passed over for repeating recent work. */
+  deferred: { workout: Workout; because: Workout; shared: string[] } | null
+}
+
+/** The session to hand back, and why it isn't simply the stalest one. */
+export function pickNext(
+  workouts: Workout[],
+  logs: TrainingLog[],
+  now: Date = new Date(),
+): NextPick {
+  if (workouts.length === 0) return { workout: null, deferred: null }
+
+  const lastDone = lastDoneByWorkout(logs)
+  const ordered = [...workouts].sort((a, b) => {
+    const da = lastDone.get(a.id) ?? ''
+    const db = lastDone.get(b.id) ?? ''
+    if (da !== db) return da < db ? -1 : 1
+    return a.sort_order - b.sort_order
+  })
+
+  // The most recent session that maps to one of the five. Ad-hoc entries say
+  // nothing about which muscles were worked, so they can't inform spacing.
+  let recent: { log: TrainingLog; workout: Workout } | null = null
+  for (const log of logs) {
+    if (!log.workout_id) continue
+    if (recent && log.date <= recent.log.date) continue
+    const workout = workouts.find((w) => w.id === log.workout_id)
+    if (workout) recent = { log, workout }
+  }
+
+  const first = ordered[0]!
+  if (!recent) return { workout: first, deferred: null }
+
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const [y, m, d] = recent.log.date.split('-').map(Number)
+  const days = Math.round(
+    (today.getTime() - new Date(y!, (m ?? 1) - 1, d ?? 1).getTime()) / 86_400_000,
+  )
+  if (days > SPACING_WINDOW_DAYS) return { workout: first, deferred: null }
+
+  for (const candidate of ordered) {
+    const shared = sharedTags(candidate, recent.workout)
+    if (shared.length < OVERLAP_LIMIT) {
+      return {
+        workout: candidate,
+        deferred:
+          candidate.id === first.id
+            ? null
+            : { workout: first, because: recent.workout, shared: sharedTags(first, recent.workout) },
+      }
+    }
+  }
+
+  // Everything overlaps. Staleness wins rather than refusing to suggest one.
+  return { workout: first, deferred: null }
+}
+
+/** The stamp the CURRENT line is working toward.
+ *
+ *  Lines that run together share a stamp -- the three warmup drills all start
+ *  at 30:00 -- so the next line's stamp is often the same as this one's, which
+ *  would read as "0:00 left" the instant the block began. What the group is
+ *  actually working toward is the next stamp strictly lower than its own.
+ *  Returns 0 for the final group, which counts down to the end of the session. */
+export function nextDistinctStamp(blocks: FlatBlock[], index: number): number {
+  const current = blocks[index]?.start_remaining_seconds
+  if (current === undefined) return 0
+  for (let k = index + 1; k < blocks.length; k++) {
+    const stamp = blocks[k]!.start_remaining_seconds
+    if (stamp < current) return stamp
+  }
+  return 0
+}

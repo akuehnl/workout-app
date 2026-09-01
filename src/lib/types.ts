@@ -10,6 +10,12 @@ export type Block = {
   /** Seconds that should be LEFT on the countdown when this block starts.
    *  Session 1 opens at 1800 and its last block starts at 300. */
   start_remaining_seconds: number
+  /** How long to rest between sets on this line, e.g. "60s between sets".
+   *  Absent on warmup and mobility, where it doesn't apply. */
+  rest?: string | null
+  /** Present when this line should show a tally in the runner (Cindy's
+   *  rounds). The count is written to the top of the line's note. */
+  counter?: { label: string } | null
   /** Optional pointer into program_phases. Lets a finisher inherit the phase
    *  variation of the movement that actually progresses (the snatch, the
    *  swing) without colliding with that movement's own key earlier in the
@@ -25,6 +31,9 @@ export type Workout = {
   total_seconds: number
   /** Why this session gets the mobility it gets. */
   mobility_note: string
+  /** Movement patterns this session hammers. The queue uses these to avoid
+   *  handing back a session that repeats yesterday's work. */
+  muscle_tags: string[]
   warmup: Block[]
   main: Block[]
   finisher: Block[]

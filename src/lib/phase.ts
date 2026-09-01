@@ -72,3 +72,51 @@ export function variationFor(block: Block, variations: Map<string, string>): str
   if (!key) return null
   return variations.get(key) ?? null
 }
+
+/* ---------------------------------------------------------------------------
+   Advance warning.
+
+   From the notes: "The app needs to tell me ahead of time when to order new
+   weights. At least a week ahead of time."
+   --------------------------------------------------------------------------- */
+
+export const HEADS_UP_DAYS = 7
+
+/** Days until the phase rolls over, or null once the program has run out. */
+export function daysUntilNextPhase(programStart: string, now: Date = new Date()): number | null {
+  const start = localDate(programStart)
+  const today = startOfLocalDay(now)
+  const daysElapsed = Math.floor((today.getTime() - start.getTime()) / DAY_MS)
+  if (daysElapsed < 0) return null
+
+  const phaseLengthDays = PHASE_LENGTH_WEEKS * 7
+  const phaseIndex = Math.floor(daysElapsed / phaseLengthDays)
+  if (phaseIndex >= TOTAL_PHASES) return null // past the end; nothing left to roll into
+
+  return phaseLengthDays - (daysElapsed % phaseLengthDays)
+}
+
+export type VariationChange = { exercise_key: string; from: string; to: string }
+
+/** What actually changes when the phase turns over. */
+export function changesForPhase(
+  rows: ProgramPhase[],
+  fromPhase: number,
+  toPhase: number,
+): VariationChange[] {
+  const before = variationMap(rows, fromPhase)
+  const after = variationMap(rows, toPhase)
+  const out: VariationChange[] = []
+  for (const [key, to] of after) {
+    const from = before.get(key)
+    if (from && from !== to) out.push({ exercise_key: key, from, to })
+  }
+  return out.sort((a, b) => a.exercise_key.localeCompare(b.exercise_key))
+}
+
+/** The equipment on hand. Nothing in phases 1-4 asks for more than this --
+ *  the program is built around it -- so the only buy is what comes after. */
+export const OWNED_EQUIPMENT = 'two 25s and one 35'
+
+export const NEXT_BUY_MESSAGE =
+  'Nothing in phases 1\u20134 needs a bell you don\u2019t own. What comes after does: a pair of 35s, or a 53. If you want them in hand for the day Phase 4 ends, order them now.'

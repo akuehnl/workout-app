@@ -6,9 +6,17 @@ import {
   bestCindyRounds,
   flattenWorkout,
   lastDoneByWorkout,
-  nextUp,
+  pickNext,
   relativeDay,
+  type NextPick,
 } from '../lib/log'
+import {
+  HEADS_UP_DAYS,
+  NEXT_BUY_MESSAGE,
+  TOTAL_PHASES,
+  changesForPhase,
+  daysUntilNextPhase,
+} from '../lib/phase'
 import { loadRun } from '../lib/runner'
 import { formatStamp } from '../lib/time'
 import type { Workout } from '../lib/types'
@@ -25,17 +33,29 @@ export default function Today() {
   if (program.status === 'error') return <ErrorState message={program.message} />
   if (history.status === 'error') return <ErrorState message={history.message} />
 
-  const { workouts, phaseState } = program.data
+  const { workouts, phaseState, phases, settings, movements } = program.data
   const { logs, allItems } = history.data
 
-  const next = nextUp(workouts, logs)
+  const pick: NextPick = pickNext(workouts, logs)
   const lastDone = lastDoneByWorkout(logs)
   const cindyBest = bestCindyRounds(allItems)
 
-  // An unfinished run held in the crash-safety cache. Surfaced here so that
-  // starting something else doesn't silently throw it away.
   const cached = loadRun()
   const cachedWorkout = cached ? workouts.find((w) => w.id === cached.workoutId) : undefined
+
+  // Advance warning, from the notes: "tell me ahead of time when to order new
+  // weights. At least a week ahead of time."
+  const untilPhase = daysUntilNextPhase(settings.program_start)
+  const headsUp =
+    untilPhase !== null && untilPhase <= HEADS_UP_DAYS
+      ? {
+          days: untilPhase,
+          endsProgram: phaseState.phase >= TOTAL_PHASES,
+          changes: changesForPhase(phases, phaseState.phase, phaseState.phase + 1),
+        }
+      : null
+
+  const movementName = (key: string) => movements.get(key)?.name ?? key
 
   return (
     <Screen title="Today">
@@ -65,16 +85,29 @@ export default function Today() {
         </Card>
       )}
 
-      {next ? (
+      {pick.workout ? (
         <NextCard
-          workout={next}
-          lastDoneOn={lastDone.get(next.id)}
-          cindyBest={next.sort_order === 3 ? cindyBest : null}
+          workout={pick.workout}
+          lastDoneOn={lastDone.get(pick.workout.id)}
+          cindyBest={pick.workout.sort_order === 3 ? cindyBest : null}
         />
       ) : (
         <Card className="p-5">
           <p className="text-small text-muted">No sessions in the program yet.</p>
         </Card>
+      )}
+
+      {pick.deferred && (
+        <p className="mt-2 px-1 text-small text-muted">
+          <span className="font-medium text-ink">{pick.deferred.workout.name}</span> has waited
+          longer, but you did{' '}
+          <span className="font-medium text-ink">{pick.deferred.because.name}</span>{' '}
+          {lastDone.get(pick.deferred.because.id)
+            ? relativeDay(lastDone.get(pick.deferred.because.id)!)
+            : 'recently'}{' '}
+          and they share {pick.deferred.shared.slice(0, 3).join(', ')}. It keeps its place and
+          comes up next.
+        </p>
       )}
 
       <button
@@ -112,6 +145,41 @@ export default function Today() {
             )
           })}
         </ul>
+      )}
+
+      {headsUp && (
+        <Card className="mt-6 p-4">
+          <p className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
+            Heads up
+          </p>
+          {headsUp.endsProgram ? (
+            <>
+              <p className="mt-1 text-small">
+                Phase {TOTAL_PHASES} ends in {headsUp.days}{' '}
+                {headsUp.days === 1 ? 'day' : 'days'}.
+              </p>
+              <p className="mt-2 text-small text-muted">{NEXT_BUY_MESSAGE}</p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-small">
+                Phase {phaseState.phase + 1} starts in {headsUp.days}{' '}
+                {headsUp.days === 1 ? 'day' : 'days'}. Everything below gets harder — same bells,
+                so there is nothing to order.
+              </p>
+              <ul className="mt-2 space-y-1">
+                {headsUp.changes.map((change) => (
+                  <li key={change.exercise_key} className="text-small text-muted">
+                    <span className="font-medium text-ink">
+                      {movementName(change.exercise_key)}
+                    </span>
+                    : {change.from} → {change.to}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Card>
       )}
     </Screen>
   )

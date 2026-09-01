@@ -57,6 +57,8 @@ export type ProgramPhase = {
 export type Settings = {
   id: number
   program_start: string // ISO date, e.g. "2026-08-24"
+  /** The goal line on the weight chart. Null means no goal set. */
+  goal_weight_lbs: number | null
 }
 
 export type SectionName = 'warmup' | 'main' | 'finisher' | 'mobility'

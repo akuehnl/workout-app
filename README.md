@@ -27,7 +27,9 @@ instead of quietly seeding into the other app's tables. If you see
 4. New query -> paste all of `supabase/003_log_schema.sql` -> Run.
 5. New query -> paste all of `supabase/004_seed_history.sql` -> Run.
 6. New query -> paste all of `supabase/005_adhoc_sessions.sql` -> Run.
-7. Project Settings -> API -> copy the **Project URL** and the **anon public**
+7. New query -> paste all of `supabase/006_weights_rest_and_spacing.sql` -> Run.
+8. New query -> paste all of `supabase/007_metrics.sql` -> Run.
+9. Project Settings -> API -> copy the **Project URL** and the **anon public**
    key.
 
 Run them in order. Each file refuses to run if the one before it hasn't.

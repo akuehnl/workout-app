@@ -9,6 +9,7 @@ import Run from './screens/Run'
 import Log from './screens/Log'
 import LogEntry from './screens/LogEntry'
 import LogNew from './screens/LogNew'
+import Body from './screens/Body'
 import { BUILD_ID, fetchDeployedBuildId } from './lib/version'
 
 const CHECK_EVERY_MS = 5 * 60 * 1000
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/program" element={<Program />} />
           <Route path="/program/:sortOrder" element={<WorkoutDetail />} />
           <Route path="/streaks" element={<Streaks />} />
+          <Route path="/body" element={<Body />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
         </Routes>
       </main>

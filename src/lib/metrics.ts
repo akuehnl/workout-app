@@ -112,6 +112,22 @@ export type ChartGeometry = {
   goalY: number | null
   yTicks: { y: number; label: string }[]
   xLabels: { x: number; label: string; anchor: 'start' | 'middle' | 'end' }[]
+  /** The fitted trend, when one is being shown. */
+  trendPath: string | null
+  /** Where today sits once the axis runs into the future, so the projection
+   *  can be visually separated from what has actually happened. */
+  todayX: number | null
+}
+
+/** A fitted line to draw. It spans only the readings it was fitted to and then
+ *  forward -- extrapolating it back across data it never saw would put a steep
+ *  two-week slope somewhere absurd a month ago. */
+export type TrendLine = {
+  slopePerDay: number
+  intercept: number
+  fromDate: string
+  throughDate: string
+  todayDate: string
 }
 
 const PAD = { top: 10, right: 10, bottom: 20, left: 32 }
@@ -120,9 +136,31 @@ const PAD = { top: 10, right: 10, bottom: 20, left: 32 }
  *  y-axis never spans less than this. */
 const MIN_SPAN_LBS = 4
 
-function dateMs(iso: string): number {
+/* Day arithmetic, anchored to a fixed LOCAL midnight.
+ *
+ * The obvious version -- local-midnight-ms / 86400000 -- is not a whole number
+ * anywhere except UTC, and rounding it back to a date lands a day early west
+ * of Greenwich. Counting whole days from a local reference instead is exact,
+ * and going through the Date constructor keeps it right across DST, where a
+ * day is 23 or 25 hours long. */
+const DAY_MS = 86_400_000
+const EPOCH = new Date(2000, 0, 1).getTime()
+
+export function dayNumber(iso: string): number {
   const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y!, (m ?? 1) - 1, d ?? 1).getTime()
+  return Math.round((new Date(y!, (m ?? 1) - 1, d ?? 1).getTime() - EPOCH) / DAY_MS)
+}
+
+export function isoFromDay(day: number): string {
+  const date = new Date(2000, 0, 1 + Math.round(day))
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function dateMs(iso: string): number {
+  return EPOCH + dayNumber(iso) * DAY_MS
 }
 
 function shortDate(iso: string): string {
@@ -136,14 +174,22 @@ function shortDate(iso: string): string {
 export function buildChart(
   points: ChartPoint[],
   goal: number | null,
+  trend: TrendLine | null = null,
   width = 320,
   height = 170,
 ): ChartGeometry | null {
   if (points.length === 0) return null
 
+  const trendAt = (day: number) => trend!.slopePerDay * day + trend!.intercept
+
   const values = points.map((p) => p.value)
-  // The goal has to be inside the domain or the line would sit off-canvas.
-  const candidates = goal !== null ? [...values, goal] : values
+  // The goal has to be inside the domain or the line would sit off-canvas, and
+  // so do both ends of the trend line for the same reason.
+  const candidates = goal !== null ? [...values, goal] : [...values]
+  if (trend) {
+    candidates.push(trendAt(dayNumber(trend.fromDate)))
+    candidates.push(trendAt(dayNumber(trend.throughDate)))
+  }
   let lo = Math.min(...candidates)
   let hi = Math.max(...candidates)
 
@@ -163,7 +209,8 @@ export function buildChart(
 
   const times = points.map((p) => dateMs(p.date))
   const tMin = Math.min(...times)
-  const tMax = Math.max(...times)
+  // The axis runs out to the projection when there is one.
+  const tMax = Math.max(...times, trend ? dateMs(trend.throughDate) : -Infinity)
   // A single reading, or several on one day, sits in the middle rather than
   // dividing by zero.
   const xOf = (t: number) =>
@@ -186,13 +233,27 @@ export function buildChart(
 
   const first = points[0]!
   const last = points[points.length - 1]!
+  const rightLabel = trend ? trend.throughDate : last.date
   const xLabels =
-    points.length === 1 || first.date === last.date
+    !trend && (points.length === 1 || first.date === last.date)
       ? [{ x: (x0 + x1) / 2, label: shortDate(first.date), anchor: 'middle' as const }]
       : [
           { x: x0, label: shortDate(first.date), anchor: 'start' as const },
-          { x: x1, label: shortDate(last.date), anchor: 'end' as const },
+          { x: x1, label: shortDate(rightLabel), anchor: 'end' as const },
         ]
+
+  let trendPath: string | null = null
+  let todayX: number | null = null
+  if (trend) {
+    const fromMs = dateMs(trend.fromDate)
+    const throughMs = dateMs(trend.throughDate)
+    const y1v = trendAt(dayNumber(trend.fromDate))
+    const y2v = trendAt(dayNumber(trend.throughDate))
+    trendPath =
+      `M${Math.round(xOf(fromMs) * 10) / 10},${Math.round(yOf(y1v) * 10) / 10} ` +
+      `L${Math.round(xOf(throughMs) * 10) / 10},${Math.round(yOf(y2v) * 10) / 10}`
+    todayX = Math.round(xOf(dateMs(trend.todayDate)) * 10) / 10
+  }
 
   return {
     width,
@@ -202,5 +263,7 @@ export function buildChart(
     goalY: goal === null ? null : Math.round(yOf(goal) * 10) / 10,
     yTicks,
     xLabels,
+    trendPath,
+    todayX,
   }
 }

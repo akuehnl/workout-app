@@ -1,20 +1,24 @@
-import { buildChart, type ChartPoint } from '../lib/metrics'
+import { buildChart, type ChartPoint, type TrendLine } from '../lib/metrics'
 
 /* ---------------------------------------------------------------------------
-   Inline SVG. No charting library -- this is one line, one goal line and three
-   tick labels, which is well inside what 60 lines of SVG does cleanly.
+   Inline SVG. No charting library -- one line, one dashed goal line, an
+   optional fitted trend and three tick labels is well inside what sixty lines
+   of SVG does cleanly.
 
-   Colours come from the theme tokens so the chart matches everything else, and
-   the accent stays reserved for the goal.
+   Colours come from the theme tokens. The accent stays reserved for the goal;
+   the trend is drawn in it too, because the trend exists only to answer a
+   question about the goal.
    --------------------------------------------------------------------------- */
 export default function WeightChart({
   points,
   goal,
+  trend = null,
 }: {
   points: ChartPoint[]
   goal: number | null
+  trend?: TrendLine | null
 }) {
-  const chart = buildChart(points, goal)
+  const chart = buildChart(points, goal, trend)
 
   if (!chart) {
     return (
@@ -24,7 +28,7 @@ export default function WeightChart({
     )
   }
 
-  const { width, height, path, dots, goalY, yTicks, xLabels } = chart
+  const { width, height, path, dots, goalY, yTicks, xLabels, trendPath, todayX } = chart
 
   return (
     <svg
@@ -34,7 +38,8 @@ export default function WeightChart({
       role="img"
       aria-label={
         `Weight over time, ${points.length} ${points.length === 1 ? 'reading' : 'readings'}` +
-        (goal !== null ? `, goal ${goal} pounds` : '')
+        (goal !== null ? `, goal ${goal} pounds` : '') +
+        (trend ? ', with a projected trend line' : '')
       }
     >
       {/* horizontal guides */}
@@ -48,17 +53,23 @@ export default function WeightChart({
             stroke="var(--color-line)"
             strokeWidth={1}
           />
-          <text
-            x={27}
-            y={tick.y + 3}
-            textAnchor="end"
-            fontSize={9}
-            fill="var(--color-faint)"
-          >
+          <text x={27} y={tick.y + 3} textAnchor="end" fontSize={9} fill="var(--color-faint)">
             {tick.label}
           </text>
         </g>
       ))}
+
+      {/* where the record stops and the guess begins */}
+      {todayX !== null && (
+        <line
+          x1={todayX}
+          x2={todayX}
+          y1={10}
+          y2={height - 20}
+          stroke="var(--color-line-strong)"
+          strokeWidth={1}
+        />
+      )}
 
       {/* the goal, dashed and in the accent -- the one thing being aimed at */}
       {goalY !== null && (
@@ -70,6 +81,19 @@ export default function WeightChart({
           stroke="var(--color-accent)"
           strokeWidth={1.5}
           strokeDasharray="4 3"
+        />
+      )}
+
+      {/* the fitted trend, drawn under the readings so the data stays on top */}
+      {trendPath && (
+        <path
+          d={trendPath}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth={2}
+          strokeDasharray="1 4"
+          strokeLinecap="round"
+          opacity={0.9}
         />
       )}
 
@@ -89,7 +113,7 @@ export default function WeightChart({
           key={dot.date}
           cx={dot.x}
           cy={dot.y}
-          r={points.length > 12 ? 1.8 : 3}
+          r={dots.length > 12 ? 1.8 : 3}
           fill="var(--color-ink)"
         />
       ))}

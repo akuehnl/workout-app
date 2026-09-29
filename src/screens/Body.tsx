@@ -17,6 +17,14 @@ import {
   type MetricField,
   type MetricValues,
 } from '../lib/metrics'
+import {
+  chartEndDate,
+  evaluateAll,
+  fitQuality,
+  type WindowKey,
+  type WindowState,
+} from '../lib/regression'
+import type { TrendLine } from '../lib/metrics'
 import WeightChart from '../components/WeightChart'
 import { Card, ErrorState, Loading, Screen, SectionLabel } from '../components/Ui'
 
@@ -54,6 +62,7 @@ export default function Body() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
+  const [activeWindow, setActiveWindow] = useState<WindowKey | null>(null)
   const [goalDraft, setGoalDraft] = useState('')
   const [goalSaved, setGoalSaved] = useState(false)
 
@@ -90,6 +99,23 @@ export default function Body() {
   const goalNumber = goal === null || goal === undefined ? null : Number(goal)
   const series = weightSeries(metrics)
   const weight = latestAndPrevious(metrics, 'weight_lbs')
+
+  const today = localDateString()
+  const windows = evaluateAll(series, goalNumber, today)
+  const active = windows.find((w) => w.key === activeWindow && w.status === 'ready')
+  const trend: TrendLine | null =
+    active && active.status === 'ready'
+      ? {
+          slopePerDay: active.fit.slopePerDay,
+          intercept: active.fit.intercept,
+          fromDate: active.fit.firstDate,
+          // No forward extension when the trend isn't heading for the goal --
+          // there's no date to draw toward.
+          throughDate: chartEndDate(active, today) ?? active.fit.lastDate,
+          todayDate: today,
+        }
+      : null
+  const locked = windows.filter((w) => w.status === 'insufficient')
 
   async function handleSave() {
     const values = valuesFrom(draft)
@@ -199,9 +225,71 @@ export default function Body() {
       <div className="mt-3">
         <SectionLabel>Weight over time</SectionLabel>
         <Card className="mt-2 p-3">
-          <WeightChart points={series} goal={goalNumber} />
+          <WeightChart points={series} goal={goalNumber} trend={trend} />
         </Card>
       </div>
+
+      {/* --- projection ---------------------------------------------------- */}
+      {series.length > 0 && (
+        <div className="mt-4">
+          <SectionLabel>Projection</SectionLabel>
+          <Card className="mt-2 p-4">
+            <div className="flex gap-2">
+              {windows.map((w) => {
+                const ready = w.status === 'ready'
+                const on = activeWindow === w.key && ready
+                return (
+                  <button
+                    key={w.key}
+                    type="button"
+                    disabled={!ready}
+                    aria-pressed={on}
+                    aria-label={`Trend over the last ${w.label}`}
+                    onClick={() => setActiveWindow(on ? null : w.key)}
+                    className={`min-h-11 flex-1 rounded-card border text-small font-medium
+                                ${
+                                  on
+                                    ? 'border-accent bg-accent text-white'
+                                    : ready
+                                      ? 'border-line bg-surface active:bg-sunken'
+                                      : 'border-line bg-sunken text-faint'
+                                }`}
+                  >
+                    {w.key.toUpperCase()}
+                  </button>
+                )
+              })}
+            </div>
+
+            {active && active.status === 'ready' ? (
+              <ProjectionReadout state={active} goal={goalNumber} />
+            ) : (
+              <p className="mt-3 text-small text-muted">
+                {activeWindow === null
+                  ? 'Pick a window to fit a trend line and project when you reach your goal. Tap it again to hide the line.'
+                  : 'That window does not have enough history yet.'}
+              </p>
+            )}
+
+            {locked.length > 0 && (
+              <p className="mt-2 text-small text-faint">
+                {locked.map((w) => w.key.toUpperCase()).join(' and ')}{' '}
+                {locked.length === 1 ? 'needs' : 'need'} more history —{' '}
+                {locked
+                  .map((w) =>
+                    w.status === 'insufficient'
+                      ? `about ${Math.max(1, Math.round(w.needDays / 7))} more ${
+                          Math.max(1, Math.round(w.needDays / 7)) === 1 ? 'week' : 'weeks'
+                        }`
+                      : '',
+                  )
+                  .join(', ')}
+                .
+              </p>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* --- entry form ---------------------------------------------------- */}
       <div className="mt-6">
@@ -394,5 +482,65 @@ export default function Body() {
         )}
       </div>
     </Screen>
+  )
+}
+
+/** The sentence under the window chips. Says what the fit is and what it
+ *  implies, and says plainly when it implies nothing. */
+function ProjectionReadout({
+  state,
+  goal,
+}: {
+  state: Extract<WindowState, { status: 'ready' }>
+  goal: number | null
+}) {
+  const { fit, projection } = state
+  const rate = `${fit.perWeek >= 0 ? '+' : '−'}${Math.abs(Math.round(fit.perWeek * 100) / 100)} lb/week`
+
+  let headline: string
+  let detail: string | null = null
+
+  switch (projection.status) {
+    case 'reaches': {
+      const when = new Date(
+        Number(projection.date.split('-')[0]),
+        Number(projection.date.split('-')[1]) - 1,
+        Number(projection.date.split('-')[2]),
+      ).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+      const weeks = Math.round(projection.days / 7)
+      headline = `${goal} lb around ${when}`
+      detail = `${rate} · about ${weeks} ${weeks === 1 ? 'week' : 'weeks'} away`
+      break
+    }
+    case 'beyond':
+      headline = `More than a year away`
+      detail = `${rate} at this rate`
+      break
+    case 'away':
+      headline = `Not heading for ${goal} lb`
+      detail = `${rate} over this window — moving away from the goal, so there's no date to project.`
+      break
+    case 'flat':
+      headline = 'Flat over this window'
+      detail = 'No trend to project from.'
+      break
+    case 'reached':
+      headline = `Already at ${goal} lb on this trend`
+      break
+    case 'no-goal':
+      headline = 'No goal set'
+      detail = 'Set a goal weight below and this becomes a date.'
+      break
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="text-heading font-semibold">{headline}</p>
+      {detail && <p className="mt-0.5 text-small text-muted">{detail}</p>}
+      <p className="mt-2 text-small text-faint">
+        Fitted to {fit.readings} readings over {Math.round(fit.spanDays)} days ·{' '}
+        {fitQuality(fit.r2)} fit (R² {fit.r2.toFixed(2)})
+      </p>
+    </div>
   )
 }

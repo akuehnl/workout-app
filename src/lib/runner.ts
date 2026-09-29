@@ -1,4 +1,4 @@
-import type { FlatBlock } from './log'
+import { nextDistinctStamp, type FlatBlock } from './log'
 
 /** The ONE localStorage exception in this app. This is a crash-safety cache so
  *  that locking the phone or refreshing mid-workout doesn't lose the run --
@@ -254,14 +254,52 @@ export function noteWithCount(
 ${item.notes}`.trim()
 }
 
-/** Seconds left before the NEXT line is due to start. Negative once this line
- *  has run long. The last line counts down to the end of the session. */
-export function secondsLeftOnCurrent(
+export type CurrentTiming = {
+  /** When the next block is due, for the "next at" stamp. */
+  nextStartRemaining: number
+  /** Seconds left on the line in front of you. */
+  leftOnCurrent: number
+  /** Nothing follows this block; it runs to the end of the session. */
+  isLastGroup: boolean
+}
+
+/** How long is left on the current line.
+ *
+ *  Two limits apply and the tighter one wins:
+ *
+ *    * what the block was ALLOTTED, counted from when the block began. Finish
+ *      a warmup early and the block after it still only gets its own slice --
+ *      a 17-minute AMRAP started three minutes early is still 17 minutes, not
+ *      20. Without this the clock hands the spare time to the next movement.
+ *    * what is left before the next block is DUE. Run long and that shrinks,
+ *      which is the signal that the session is slipping.
+ *
+ *  Lines that share a stamp share one budget, so the spend is measured across
+ *  the whole group rather than restarting on each drill. */
+export function currentTiming(
   run: PersistedRun,
   nowMs: number,
-  nextStartRemaining: number,
-): number {
-  return remainingSeconds(run, nowMs) - nextStartRemaining
+  blocks: FlatBlock[],
+): CurrentTiming | null {
+  const current = blocks[run.index]
+  if (!current) return null
+
+  const stamp = current.start_remaining_seconds
+  const next = nextDistinctStamp(blocks, run.index)
+  const allotted = stamp - next
+
+  // Time already spent inside this stamp group: the current line, plus any
+  // earlier lines that share its stamp.
+  let groupSpent = (elapsedMs(run, nowMs) - run.boundaryElapsedMs) / 1000
+  for (let k = run.index - 1; k >= 0 && blocks[k]!.start_remaining_seconds === stamp; k--) {
+    groupSpent += run.items[k]?.split_seconds ?? 0
+  }
+
+  return {
+    nextStartRemaining: next,
+    leftOnCurrent: Math.min(allotted - groupSpent, remainingSeconds(run, nowMs) - next),
+    isLastGroup: next === 0,
+  }
 }
 
 export function isFinished(run: PersistedRun): boolean {

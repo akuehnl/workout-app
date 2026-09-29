@@ -15,7 +15,7 @@ export default function Log() {
   if (program.status === 'error') return <ErrorState message={program.message} />
   if (history.status === 'error') return <ErrorState message={history.message} />
 
-  const { workouts } = program.data
+  const { workouts, movements } = program.data
   const { logs, itemsByLog } = history.data
 
   const addButton = (
@@ -97,7 +97,9 @@ export default function Log() {
                   {noted.map((item: TrainingLogItem) => (
                     <li key={item.id} className="text-small">
                       <span className={item.checked ? 'font-medium' : 'font-medium text-muted'}>
-                        {names.get(item.exercise_key) ?? item.exercise_key}
+                        {names.get(item.exercise_key) ??
+                          movements.get(item.exercise_key)?.name ??
+                          item.exercise_key}
                         {!item.checked && ' (not done)'}
                       </span>
                       <span className="text-muted"> — {item.notes}</span>

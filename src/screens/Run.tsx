@@ -2,13 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useProgram } from '../lib/useProgram'
 import { variationFor } from '../lib/phase'
-import {
-  flattenWorkout,
-  localDateString,
-  nextDistinctStamp,
-  saveRun,
-  type FlatBlock,
-} from '../lib/log'
+import { flattenWorkout, localDateString, saveRun, type FlatBlock } from '../lib/log'
 import { formatStamp, formatStampPadded } from '../lib/time'
 import type { Movement, Workout } from '../lib/types'
 import {
@@ -26,7 +20,7 @@ import {
   reconcile,
   remainingSeconds,
   resume,
-  secondsLeftOnCurrent,
+  currentTiming,
   setNote,
   skip,
   toggleItem,
@@ -120,13 +114,10 @@ function RunSession({
   // From the notes: the small clock should show when the NEXT line is due and
   // how long is left on this one -- not the stamp this line was meant to start
   // at, which has already gone by and can't be acted on.
-  const nextStartRemaining = finished ? null : nextDistinctStamp(blocks, run.index)
-  // 0 means nothing comes after this block -- it runs to the end of the session.
-  const isLast = nextStartRemaining === 0
-  const leftOnCurrent =
-    current && nextStartRemaining !== null
-      ? secondsLeftOnCurrent(run, now, nextStartRemaining)
-      : null
+  const timing = finished ? null : currentTiming(run, now, blocks)
+  const nextStartRemaining = timing?.nextStartRemaining ?? null
+  const leftOnCurrent = timing?.leftOnCurrent ?? null
+  const isLast = timing?.isLastGroup ?? false
 
   // Keep the travelling clock where the eye already is when it moves down.
   useEffect(() => {

@@ -41,9 +41,12 @@ export default function LogEntry() {
   }
 
   const workout = program.data.workouts.find((w) => w.id === log.workout_id)
-  const names = new Map(
-    workout ? flattenWorkout(workout).map((b) => [b.exercise_key, b.name]) : [],
+  // Movements dropped from a session still have rows in old logs, so fall back
+  // to the movements table before giving up and showing a raw key.
+  const names = new Map<string, string>(
+    [...program.data.movements].map(([key, m]) => [key, m.name]),
   )
+  if (workout) for (const b of flattenWorkout(workout)) names.set(b.exercise_key, b.name)
 
   return (
     <Editor

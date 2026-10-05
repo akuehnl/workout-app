@@ -3,6 +3,8 @@ import { supabase } from './supabase'
 export type Metric = {
   id: string
   date: string
+  /** "14:30:00", or null for the readings taken before the app asked. */
+  measured_at: string | null
   weight_lbs: number | null
   chest_in: number | null
   waist_in: number | null
@@ -11,18 +13,33 @@ export type Metric = {
   thigh_in: number | null
 }
 
-export type MetricField = Exclude<keyof Metric, 'id' | 'date'>
+export type MetricField = Exclude<keyof Metric, 'id' | 'date' | 'measured_at'>
 
 /** The fields, in the order they're entered and shown. Weight leads because
- *  it's the one that gets logged on its own most days. */
-export const FIELDS: { key: MetricField; label: string; unit: string; step: number }[] = [
-  { key: 'weight_lbs', label: 'Weight', unit: 'lb', step: 0.1 },
-  { key: 'chest_in', label: 'Chest', unit: 'in', step: 0.25 },
-  { key: 'waist_in', label: 'Waist', unit: 'in', step: 0.25 },
-  { key: 'hips_in', label: 'Hips', unit: 'in', step: 0.25 },
-  { key: 'arm_in', label: 'Arm', unit: 'in', step: 0.25 },
-  { key: 'thigh_in', label: 'Thigh', unit: 'in', step: 0.25 },
+ *  it's the one that gets logged on its own most days, and it's the chart's
+ *  default.
+ *
+ *  minSpan stops a flat stretch being stretched into drama, and it has to
+ *  differ by unit: four pounds is a normal fortnight's wobble, four inches off
+ *  a waist is not. */
+export const FIELDS: {
+  key: MetricField
+  label: string
+  unit: string
+  step: number
+  minSpan: number
+}[] = [
+  { key: 'weight_lbs', label: 'Weight', unit: 'lb', step: 0.1, minSpan: 4 },
+  { key: 'chest_in', label: 'Chest', unit: 'in', step: 0.25, minSpan: 1 },
+  { key: 'waist_in', label: 'Waist', unit: 'in', step: 0.25, minSpan: 1 },
+  { key: 'hips_in', label: 'Hips', unit: 'in', step: 0.25, minSpan: 1 },
+  { key: 'arm_in', label: 'Arm', unit: 'in', step: 0.25, minSpan: 1 },
+  { key: 'thigh_in', label: 'Thigh', unit: 'in', step: 0.25, minSpan: 1 },
 ]
+
+export function fieldFor(key: MetricField) {
+  return FIELDS.find((f) => f.key === key) ?? FIELDS[0]!
+}
 
 export type MetricValues = Partial<Record<MetricField, number | null>>
 
@@ -34,11 +51,25 @@ export async function fetchMetrics(): Promise<Metric[]> {
 
 /** One row per date, so saving the same day again corrects it instead of
  *  stacking a second entry. */
-export async function saveMetric(date: string, values: MetricValues): Promise<void> {
-  const { error } = await supabase
-    .from('metrics')
-    .upsert({ date, ...values }, { onConflict: 'date' })
+export async function saveMetric(
+  date: string,
+  values: MetricValues,
+  measuredAt?: string | null,
+): Promise<void> {
+  // measuredAt is only sent when the column exists, so a deploy that lands
+  // ahead of the migration can still save.
+  const row: Record<string, unknown> =
+    measuredAt === undefined ? { date, ...values } : { date, measured_at: measuredAt, ...values }
+  const { error } = await supabase.from('metrics').upsert(row, { onConflict: 'date' })
   if (error) throw new Error(error.message)
+}
+
+/** Does this database have the measured_at column yet? The Body tab asks once
+ *  so the time field and the window filter can stay hidden until the migration
+ *  has been run, rather than erroring on save. */
+export async function hasMeasurementTime(): Promise<boolean> {
+  const { error } = await supabase.from('metrics').select('measured_at').limit(1)
+  return !error
 }
 
 export async function deleteMetric(id: string): Promise<void> {
@@ -56,12 +87,58 @@ export function isEmpty(values: MetricValues): boolean {
   return FIELDS.every(({ key }) => values[key] === null || values[key] === undefined)
 }
 
-/** Oldest-first weight readings, which is the order a chart needs. */
-export function weightSeries(metrics: Metric[]): { date: string; value: number }[] {
+/** Oldest-first readings for one field, which is the order a chart needs. */
+export function series(metrics: Metric[], field: MetricField): { date: string; value: number }[] {
   return metrics
-    .filter((m): m is Metric & { weight_lbs: number } => m.weight_lbs !== null)
-    .map((m) => ({ date: m.date, value: Number(m.weight_lbs) }))
+    .filter((m) => m[field] !== null && m[field] !== undefined)
+    .map((m) => ({ date: m.date, value: Number(m[field]) }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
+/** "13:00", "13:00:00" and "1:00 pm" all have to become comparable minutes. */
+export function minutesOfDay(time: string | null | undefined): number | null {
+  if (!time) return null
+  const m = time.match(/^(\d{1,2}):(\d{2})/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null
+  return h * 60 + min
+}
+
+export function isWithinWindow(
+  time: string | null | undefined,
+  start: string,
+  end: string,
+): boolean {
+  const t = minutesOfDay(time)
+  const a = minutesOfDay(start)
+  const b = minutesOfDay(end)
+  if (t === null || a === null || b === null) return false
+  // A window that wraps past midnight is still a window.
+  return a <= b ? t >= a && t <= b : t >= a || t <= b
+}
+
+/** Keep only readings whose recorded time falls inside the window. A reading
+ *  with no time is dropped rather than assumed to qualify -- the whole point
+ *  of the filter is to compare like with like. */
+export function withinWindow(metrics: Metric[], start: string, end: string): Metric[] {
+  return metrics.filter((m) => isWithinWindow(m.measured_at, start, end))
+}
+
+export function countUntimed(metrics: Metric[], field: MetricField): number {
+  return metrics.filter((m) => m[field] !== null && !m.measured_at).length
+}
+
+/** "1:00 pm" from "13:00:00". */
+export function formatClockTime(time: string | null | undefined): string | null {
+  const mins = minutesOfDay(time)
+  if (mins === null) return null
+  const h24 = Math.floor(mins / 60)
+  const m = mins % 60
+  const suffix = h24 < 12 ? 'am' : 'pm'
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${h12}:${String(m).padStart(2, '0')} ${suffix}`
 }
 
 /** The most recent non-null reading for a field, and the one before it, so the
@@ -132,9 +209,9 @@ export type TrendLine = {
 
 const PAD = { top: 10, right: 10, bottom: 20, left: 32 }
 
-/** A nearly-flat series shouldn't be stretched into a mountain range, so the
- *  y-axis never spans less than this. */
-const MIN_SPAN_LBS = 4
+/** Fallback floor on the y-axis span. Callers pass the right one for the unit
+ *  via FIELDS.minSpan; this only applies if nobody does. */
+const DEFAULT_MIN_SPAN = 4
 
 /* Day arithmetic, anchored to a fixed LOCAL midnight.
  *
@@ -175,6 +252,7 @@ export function buildChart(
   points: ChartPoint[],
   goal: number | null,
   trend: TrendLine | null = null,
+  minSpan = DEFAULT_MIN_SPAN,
   width = 320,
   height = 170,
 ): ChartGeometry | null {
@@ -193,10 +271,10 @@ export function buildChart(
   let lo = Math.min(...candidates)
   let hi = Math.max(...candidates)
 
-  if (hi - lo < MIN_SPAN_LBS) {
+  if (hi - lo < minSpan) {
     const mid = (hi + lo) / 2
-    lo = mid - MIN_SPAN_LBS / 2
-    hi = mid + MIN_SPAN_LBS / 2
+    lo = mid - minSpan / 2
+    hi = mid + minSpan / 2
   }
   const breathingRoom = (hi - lo) * 0.12
   lo -= breathingRoom
@@ -226,9 +304,10 @@ export function buildChart(
 
   const path = dots.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x},${d.y}`).join(' ')
 
+  const tickDecimals = hi - lo < 10 ? 1 : 0
   const yTicks = [hi, (hi + lo) / 2, lo].map((v) => ({
     y: Math.round(yOf(v) * 10) / 10,
-    label: String(Math.round(v)),
+    label: v.toFixed(tickDecimals),
   }))
 
   const first = points[0]!

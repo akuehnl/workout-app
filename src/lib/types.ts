@@ -59,6 +59,10 @@ export type Settings = {
   program_start: string // ISO date, e.g. "2026-08-24"
   /** The goal line on the weight chart. Null means no goal set. */
   goal_weight_lbs: number | null
+  /** The "before dinner" window measurements can be filtered to. Absent until
+   *  009_measurement_time.sql has been run. */
+  metrics_window_start?: string | null
+  metrics_window_end?: string | null
 }
 
 export type SectionName = 'warmup' | 'main' | 'finisher' | 'mobility'

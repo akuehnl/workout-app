@@ -13,17 +13,20 @@ export default function WeightChart({
   points,
   goal,
   trend = null,
+  minSpan,
 }: {
   points: ChartPoint[]
   goal: number | null
   trend?: TrendLine | null
+  /** Floor on the y-axis span, so inches and pounds both read sensibly. */
+  minSpan?: number
 }) {
-  const chart = buildChart(points, goal, trend)
+  const chart = buildChart(points, goal, trend, minSpan)
 
   if (!chart) {
     return (
       <p className="rounded-card bg-sunken p-4 text-small text-muted">
-        No weigh-ins yet. Add one below and the chart starts here.
+        Nothing to plot yet. Add a reading below and the chart starts here.
       </p>
     )
   }

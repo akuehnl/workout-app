@@ -4,15 +4,20 @@ import { configError } from '../lib/supabase'
 import { localDateString, relativeDay } from '../lib/log'
 import {
   FIELDS,
+  countUntimed,
   deleteMetric,
   fetchMetrics,
+  fieldFor,
+  formatClockTime,
   formatDelta,
   formatValue,
+  hasMeasurementTime,
   isEmpty,
   latestAndPrevious,
   saveGoalWeight,
   saveMetric,
-  weightSeries,
+  series,
+  withinWindow,
   type Metric,
   type MetricField,
   type MetricValues,
@@ -29,6 +34,8 @@ import WeightChart from '../components/WeightChart'
 import { Card, ErrorState, Loading, Screen, SectionLabel } from '../components/Ui'
 
 type Draft = Partial<Record<MetricField, string>>
+
+const DEFAULT_WINDOW = { start: '13:00', end: '17:30' }
 
 function draftFrom(metric: Metric | null): Draft {
   if (!metric) return {}
@@ -50,19 +57,36 @@ function valuesFrom(draft: Draft): MetricValues {
   return values
 }
 
+/** "14:30:00" -> "14:30" for an <input type="time">. */
+function toTimeInput(value: string | null | undefined): string {
+  if (!value) return ''
+  const m = value.match(/^(\d{1,2}):(\d{2})/)
+  return m ? `${m[1]!.padStart(2, '0')}:${m[2]}` : ''
+}
+
+function nowTimeInput(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export default function Body() {
   const program = useProgram()
   const [metrics, setMetrics] = useState<Metric[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [timeSupported, setTimeSupported] = useState<boolean | null>(null)
+
+  const [field, setField] = useState<MetricField>('weight_lbs')
+  const [windowOnly, setWindowOnly] = useState(false)
 
   const [date, setDate] = useState(() => localDateString())
+  const [time, setTime] = useState(() => nowTimeInput())
   const [draft, setDraft] = useState<Draft>({})
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [activeWindow, setActiveWindow] = useState<WindowKey | null>(null)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const [activeWindow, setActiveWindow] = useState<WindowKey | null>(null)
   const [goalDraft, setGoalDraft] = useState('')
   const [goalSaved, setGoalSaved] = useState(false)
 
@@ -81,9 +105,11 @@ export default function Body() {
       return
     }
     void reload()
+    // Asked once: the time field and the window filter stay hidden until
+    // 009_measurement_time.sql has been run, rather than erroring on save.
+    void hasMeasurementTime().then(setTimeSupported)
   }, [reload])
 
-  // Seed the goal box once the program (and with it settings) has loaded.
   useEffect(() => {
     if (program.status === 'ready') {
       const goal = program.data.settings.goal_weight_lbs
@@ -95,13 +121,26 @@ export default function Body() {
   if (loadError) return <ErrorState message={loadError} />
   if (program.status === 'loading' || metrics === null) return <Loading what="your numbers" />
 
-  const goal = program.data.settings.goal_weight_lbs
-  const goalNumber = goal === null || goal === undefined ? null : Number(goal)
-  const series = weightSeries(metrics)
-  const weight = latestAndPrevious(metrics, 'weight_lbs')
+  const settings = program.data.settings
+  const win = {
+    start: settings.metrics_window_start ?? DEFAULT_WINDOW.start,
+    end: settings.metrics_window_end ?? DEFAULT_WINDOW.end,
+  }
+  const windowLabel = `${formatClockTime(win.start)}–${formatClockTime(win.end)}`
 
+  const spec = fieldFor(field)
+  const filterOn = windowOnly && timeSupported === true
+  const visible = filterOn ? withinWindow(metrics, win.start, win.end) : metrics
+  const points = series(visible, field)
+  const droppedUntimed = countUntimed(metrics, field)
+
+  // The goal only exists for weight; the other fields get a rate and no date.
+  const goal = field === 'weight_lbs' ? settings.goal_weight_lbs : null
+  const goalNumber = goal === null || goal === undefined ? null : Number(goal)
+
+  const latest = latestAndPrevious(visible, field)
   const today = localDateString()
-  const windows = evaluateAll(series, goalNumber, today)
+  const windows = evaluateAll(points, goalNumber, today)
   const active = windows.find((w) => w.key === activeWindow && w.status === 'ready')
   const trend: TrendLine | null =
     active && active.status === 'ready'
@@ -109,8 +148,6 @@ export default function Body() {
           slopePerDay: active.fit.slopePerDay,
           intercept: active.fit.intercept,
           fromDate: active.fit.firstDate,
-          // No forward extension when the trend isn't heading for the goal --
-          // there's no date to draw toward.
           throughDate: chartEndDate(active, today) ?? active.fit.lastDate,
           todayDate: today,
         }
@@ -126,10 +163,11 @@ export default function Body() {
     setBusy(true)
     setSaveError(null)
     try {
-      await saveMetric(date, values)
+      await saveMetric(date, values, timeSupported ? (time || null) : undefined)
       setDraft({})
       setEditingId(null)
       setDate(localDateString())
+      setTime(nowTimeInput())
       await reload()
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
@@ -146,6 +184,7 @@ export default function Body() {
         setEditingId(null)
         setDraft({})
         setDate(localDateString())
+        setTime(nowTimeInput())
       }
       setConfirmDelete(null)
       await reload()
@@ -173,6 +212,7 @@ export default function Body() {
   function startEdit(metric: Metric) {
     setEditingId(metric.id)
     setDate(metric.date)
+    setTime(toTimeInput(metric.measured_at))
     setDraft(draftFrom(metric))
     setSaveError(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -180,42 +220,78 @@ export default function Body() {
 
   return (
     <Screen title="Body" subtitle="Weight and measurements. Every field is optional.">
+      {/* --- what the chart is showing ------------------------------------- */}
+      <SectionLabel>Showing</SectionLabel>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {FIELDS.map((f) => {
+          const count = series(metrics, f.key).length
+          const on = field === f.key
+          return (
+            <button
+              key={f.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => {
+                setField(f.key)
+                setActiveWindow(null)
+              }}
+              className={`min-h-11 rounded-card border px-3 text-small font-medium ${
+                on
+                  ? 'border-accent bg-accent text-white'
+                  : count === 0
+                    ? 'border-line bg-sunken text-faint'
+                    : 'border-line bg-surface active:bg-sunken'
+              }`}
+            >
+              {f.label}
+              <span className={`ml-1.5 text-label ${on ? 'text-white/70' : 'text-faint'}`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
       {/* --- headline ------------------------------------------------------ */}
-      <Card className="p-5">
-        {weight.latest ? (
+      <Card className="mt-3 p-5">
+        {latest.latest ? (
           <>
             <p className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
-              Latest weight
+              Latest {spec.label.toLowerCase()}
             </p>
             <p className="mt-1 flex items-baseline gap-2">
               <span className="font-[family-name:var(--font-stamp)] text-display font-semibold tabular-nums">
-                {Math.round(weight.latest.value * 10) / 10}
+                {Math.round(latest.latest.value * 10) / 10}
               </span>
-              <span className="text-title text-faint">lb</span>
+              <span className="text-title text-faint">{spec.unit}</span>
             </p>
             <p className="mt-1 text-small text-muted">
-              {relativeDay(weight.latest.date)}
-              {weight.previous && (
+              {relativeDay(latest.latest.date)}
+              {latest.previous && (
                 <>
                   {' · '}
-                  {formatDelta(weight.latest.value - weight.previous.value, 'lb')} since{' '}
-                  {relativeDay(weight.previous.date)}
+                  {formatDelta(latest.latest.value - latest.previous.value, spec.unit)} since{' '}
+                  {relativeDay(latest.previous.date)}
                 </>
               )}
             </p>
             {goalNumber !== null && (
               <p className="mt-1 text-small text-accent-ink">
-                {Math.abs(Math.round((weight.latest.value - goalNumber) * 10) / 10)} lb{' '}
-                {weight.latest.value > goalNumber ? 'above' : 'below'} your {goalNumber} lb goal
+                {Math.abs(Math.round((latest.latest.value - goalNumber) * 10) / 10)} {spec.unit}{' '}
+                {latest.latest.value > goalNumber ? 'above' : 'below'} your {goalNumber}{' '}
+                {spec.unit} goal
               </p>
             )}
           </>
         ) : (
           <>
-            <h2 className="text-heading font-semibold">Nothing recorded yet</h2>
+            <h2 className="text-heading font-semibold">
+              {filterOn ? `No ${spec.label.toLowerCase()} readings in that window` : 'Nothing recorded yet'}
+            </h2>
             <p className="mt-2 text-small text-muted">
-              Add a weight below and this fills in — the number, how it&rsquo;s moved, and a chart
-              once there are two of them.
+              {filterOn
+                ? `${droppedUntimed} ${spec.label.toLowerCase()} ${droppedUntimed === 1 ? 'reading has' : 'readings have'} no recorded time, so the filter can't place them. Add times by editing an entry below.`
+                : `Add a ${spec.label.toLowerCase()} reading below and this fills in.`}
             </p>
           </>
         )}
@@ -223,14 +299,51 @@ export default function Body() {
 
       {/* --- chart --------------------------------------------------------- */}
       <div className="mt-3">
-        <SectionLabel>Weight over time</SectionLabel>
+        <SectionLabel>{spec.label} over time</SectionLabel>
         <Card className="mt-2 p-3">
-          <WeightChart points={series} goal={goalNumber} trend={trend} />
+          <WeightChart points={points} goal={goalNumber} trend={trend} minSpan={spec.minSpan} />
         </Card>
       </div>
 
+      {/* --- time-of-day filter -------------------------------------------- */}
+      {timeSupported === true && (
+        <Card className="mt-2 p-4">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={windowOnly}
+            onClick={() => {
+              setWindowOnly((v) => !v)
+              setActiveWindow(null)
+            }}
+            className="flex w-full items-center gap-3 text-left"
+          >
+            <span
+              aria-hidden
+              className={`flex h-7 w-12 shrink-0 items-center rounded-pill px-1 ${
+                windowOnly ? 'justify-end bg-accent' : 'justify-start bg-line-strong'
+              }`}
+            >
+              <span className="block size-5 rounded-pill bg-surface" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-small font-medium">Before dinner only</span>
+              <span className="block text-small text-muted">{windowLabel}</span>
+            </span>
+          </button>
+
+          {windowOnly && droppedUntimed > 0 && (
+            <p className="mt-3 text-small text-faint">
+              {droppedUntimed} {droppedUntimed === 1 ? 'reading has' : 'readings have'} no recorded
+              time and {droppedUntimed === 1 ? 'is' : 'are'} excluded. Readings taken before today
+              never captured one — edit an entry to fill it in.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* --- projection ---------------------------------------------------- */}
-      {series.length > 0 && (
+      {points.length > 0 && (
         <div className="mt-4">
           <SectionLabel>Projection</SectionLabel>
           <Card className="mt-2 p-4">
@@ -246,14 +359,13 @@ export default function Body() {
                     aria-pressed={on}
                     aria-label={`Trend over the last ${w.label}`}
                     onClick={() => setActiveWindow(on ? null : w.key)}
-                    className={`min-h-11 flex-1 rounded-card border text-small font-medium
-                                ${
-                                  on
-                                    ? 'border-accent bg-accent text-white'
-                                    : ready
-                                      ? 'border-line bg-surface active:bg-sunken'
-                                      : 'border-line bg-sunken text-faint'
-                                }`}
+                    className={`min-h-11 flex-1 rounded-card border text-small font-medium ${
+                      on
+                        ? 'border-accent bg-accent text-white'
+                        : ready
+                          ? 'border-line bg-surface active:bg-sunken'
+                          : 'border-line bg-sunken text-faint'
+                    }`}
                   >
                     {w.key.toUpperCase()}
                   </button>
@@ -262,11 +374,16 @@ export default function Body() {
             </div>
 
             {active && active.status === 'ready' ? (
-              <ProjectionReadout state={active} goal={goalNumber} />
+              <ProjectionReadout
+                state={active}
+                goal={goalNumber}
+                unit={spec.unit}
+                label={spec.label}
+              />
             ) : (
               <p className="mt-3 text-small text-muted">
                 {activeWindow === null
-                  ? 'Pick a window to fit a trend line and project when you reach your goal. Tap it again to hide the line.'
+                  ? 'Pick a window to fit a trend line. Tap it again to hide it.'
                   : 'That window does not have enough history yet.'}
               </p>
             )}
@@ -274,17 +391,14 @@ export default function Body() {
             {locked.length > 0 && (
               <p className="mt-2 text-small text-faint">
                 {locked.map((w) => w.key.toUpperCase()).join(' and ')}{' '}
-                {locked.length === 1 ? 'needs' : 'need'} more history —{' '}
-                {locked
-                  .map((w) =>
-                    w.status === 'insufficient'
-                      ? `about ${Math.max(1, Math.round(w.needDays / 7))} more ${
-                          Math.max(1, Math.round(w.needDays / 7)) === 1 ? 'week' : 'weeks'
-                        }`
-                      : '',
-                  )
-                  .join(', ')}
-                .
+                {locked.length === 1 ? 'needs' : 'need'} more{' '}
+                {filterOn ? 'in-window ' : ''}history.
+              </p>
+            )}
+
+            {filterOn && (
+              <p className="mt-2 text-small text-faint">
+                Fitted to the {windowLabel} readings only.
               </p>
             )}
           </Card>
@@ -295,33 +409,49 @@ export default function Body() {
       <div className="mt-6">
         <SectionLabel>{editingId ? 'Edit entry' : 'Add an entry'}</SectionLabel>
         <Card className="mt-2 p-4">
-          <label className="block">
-            <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
-              Date
-            </span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              max={localDateString()}
-              className="mt-1 block min-h-12 w-full rounded-card border border-line bg-surface px-3
-                         text-body outline-none focus:border-line-strong"
-            />
-          </label>
+          <div className="flex gap-2">
+            <label className="min-w-0 flex-1">
+              <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
+                Date
+              </span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                max={localDateString()}
+                className="mt-1 block min-h-12 w-full rounded-card border border-line bg-surface px-3
+                           text-body outline-none focus:border-line-strong"
+              />
+            </label>
+            {timeSupported === true && (
+              <label className="min-w-0 flex-1">
+                <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
+                  Time
+                </span>
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="mt-1 block min-h-12 w-full rounded-card border border-line bg-surface px-3
+                             text-body outline-none focus:border-line-strong"
+                />
+              </label>
+            )}
+          </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            {FIELDS.map((field) => (
-              <label key={field.key} className="block">
+            {FIELDS.map((f) => (
+              <label key={f.key} className="block">
                 <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
-                  {field.label} <span className="font-normal normal-case">({field.unit})</span>
+                  {f.label} <span className="font-normal normal-case">({f.unit})</span>
                 </span>
                 <input
                   type="number"
                   inputMode="decimal"
-                  step={field.step}
+                  step={f.step}
                   min={0}
-                  value={draft[field.key] ?? ''}
-                  onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
+                  value={draft[f.key] ?? ''}
+                  onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
                   className="mt-1 block min-h-12 w-full rounded-card border border-line bg-surface
                              px-3 text-body outline-none focus:border-line-strong"
                 />
@@ -350,6 +480,7 @@ export default function Body() {
                 setEditingId(null)
                 setDraft({})
                 setDate(localDateString())
+                setTime(nowTimeInput())
                 setSaveError(null)
               }}
               className="mt-2 min-h-12 w-full rounded-card text-small text-muted active:bg-sunken"
@@ -397,7 +528,7 @@ export default function Body() {
             </button>
           </div>
           <p className="mt-2 text-small text-faint">
-            Drawn as the dashed line on the chart. Clear it to remove the line.
+            Drawn as the dashed line on the weight chart. Clear it to remove the line.
           </p>
         </Card>
       </div>
@@ -415,18 +546,25 @@ export default function Body() {
               <li key={metric.id}>
                 <Card className="p-3">
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-medium">{metric.date}</span>
+                    <span className="font-medium">
+                      {metric.date}
+                      {formatClockTime(metric.measured_at) && (
+                        <span className="ml-2 text-small font-normal text-muted">
+                          {formatClockTime(metric.measured_at)}
+                        </span>
+                      )}
+                    </span>
                     <span className="shrink-0 text-small text-muted">
                       {relativeDay(metric.date)}
                     </span>
                   </div>
 
                   <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                    {FIELDS.filter((f) => metric[f.key] !== null).map((field) => (
-                      <div key={field.key} className="text-small">
-                        <dt className="inline text-muted">{field.label} </dt>
+                    {FIELDS.filter((f) => metric[f.key] !== null).map((f) => (
+                      <div key={f.key} className="text-small">
+                        <dt className="inline text-muted">{f.label} </dt>
                         <dd className="inline font-medium tabular-nums">
-                          {formatValue(metric[field.key], field.unit)}
+                          {formatValue(metric[f.key], f.unit)}
                         </dd>
                       </div>
                     ))}
@@ -485,39 +623,45 @@ export default function Body() {
   )
 }
 
-/** The sentence under the window chips. Says what the fit is and what it
- *  implies, and says plainly when it implies nothing. */
+/** The sentence under the window chips. Always reports the rate; only names a
+ *  date when the field has a goal to aim at. */
 function ProjectionReadout({
   state,
   goal,
+  unit,
+  label,
 }: {
   state: Extract<WindowState, { status: 'ready' }>
   goal: number | null
+  unit: string
+  label: string
 }) {
   const { fit, projection } = state
-  const rate = `${fit.perWeek >= 0 ? '+' : '−'}${Math.abs(Math.round(fit.perWeek * 100) / 100)} lb/week`
+  const magnitude = Math.abs(Math.round(fit.perWeek * 100) / 100)
+  const rate = `${fit.perWeek >= 0 ? '+' : '−'}${magnitude} ${unit}/week`
 
   let headline: string
   let detail: string | null = null
 
   switch (projection.status) {
     case 'reaches': {
-      const when = new Date(
-        Number(projection.date.split('-')[0]),
-        Number(projection.date.split('-')[1]) - 1,
-        Number(projection.date.split('-')[2]),
-      ).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+      const [y, m, d] = projection.date.split('-').map(Number)
+      const when = new Date(y!, (m ?? 1) - 1, d ?? 1).toLocaleDateString(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
       const weeks = Math.round(projection.days / 7)
-      headline = `${goal} lb around ${when}`
+      headline = `${goal} ${unit} around ${when}`
       detail = `${rate} · about ${weeks} ${weeks === 1 ? 'week' : 'weeks'} away`
       break
     }
     case 'beyond':
-      headline = `More than a year away`
+      headline = 'More than a year away'
       detail = `${rate} at this rate`
       break
     case 'away':
-      headline = `Not heading for ${goal} lb`
+      headline = `Not heading for ${goal} ${unit}`
       detail = `${rate} over this window — moving away from the goal, so there's no date to project.`
       break
     case 'flat':
@@ -525,11 +669,12 @@ function ProjectionReadout({
       detail = 'No trend to project from.'
       break
     case 'reached':
-      headline = `Already at ${goal} lb on this trend`
+      headline = `Already at ${goal} ${unit} on this trend`
       break
     case 'no-goal':
-      headline = 'No goal set'
-      detail = 'Set a goal weight below and this becomes a date.'
+      // Every field except weight lands here: a rate is still the useful part.
+      headline = rate
+      detail = `${label} over this window. No goal set for it, so there's no date to project.`
       break
   }
 

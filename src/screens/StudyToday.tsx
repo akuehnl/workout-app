@@ -13,6 +13,7 @@ import {
   overdueSessions,
   sessionIndex,
   timingFor,
+  updateSession,
   todayIso,
   type StudySession,
   type StudyWeek,
@@ -24,6 +25,18 @@ export default function StudyToday() {
   // Which session is on screen. Null means "whatever is up next" -- stepping
   // away from that is how a session gets done early or late.
   const [viewingId, setViewingId] = useState<string | null>(null)
+  const [noteDraft, setNoteDraft] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  /** Switch sessions. Always clears the note draft: it is held here rather
+   *  than in the child, so remounting the child would not drop it and a note
+   *  typed for Monday would follow you to Thursday. */
+  function goTo(id: string | null) {
+    setViewingId(id)
+    setNoteDraft(null)
+    setSaveError(null)
+  }
 
   if (study.status === 'loading') return <Loading what="the study plan" />
   if (study.status === 'error') return <ErrorState message={study.message} />
@@ -42,7 +55,7 @@ export default function StudyToday() {
       {viewing && upNext && viewing.id !== upNext.id && (
         <button
           type="button"
-          onClick={() => setViewingId(null)}
+          onClick={() => goTo(null)}
           className="text-small font-medium text-accent underline underline-offset-2"
         >
           Back to what&rsquo;s next
@@ -98,7 +111,7 @@ export default function StudyToday() {
       <Card className="p-5">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
-            {describeTiming(timing)}
+            {describeTiming(timing, viewing.completed)}
           </span>
           {viewing.completed && (
             <span className="rounded-pill bg-accent-soft px-2.5 py-1 text-label font-semibold text-accent-ink">
@@ -158,20 +171,36 @@ export default function StudyToday() {
         </ol>
       </div>
 
-      {/* Step 3 adds the check-off and the notes field here. */}
-      <Card className="mt-4 p-4">
-        <p className="text-small text-muted">
-          Marking a session complete and saving notes comes next. For now this view is
-          read-only.
-        </p>
-      </Card>
+      <SessionActions
+        key={viewing.id}
+        session={viewing}
+        busy={busy}
+        error={saveError}
+        draft={noteDraft}
+        onDraft={setNoteDraft}
+        onSubmit={async (completed, notes) => {
+          setBusy(true)
+          setSaveError(null)
+          try {
+            await updateSession(viewing.id, { completed, notes })
+            // Stay on the session just finished rather than jumping away, so
+            // the Done badge is visible. "Back to what's next" moves on.
+            setViewingId(viewing.id)
+            setNoteDraft(null)
+            study.reload()
+          } catch (e) {
+            setSaveError(e instanceof Error ? e.message : String(e))
+          }
+          setBusy(false)
+        }}
+      />
 
       {/* Stepping either way is how a session gets done early or late. */}
       <div className="mt-4 flex gap-2">
         <button
           type="button"
           disabled={!prev}
-          onClick={() => prev && setViewingId(prev.id)}
+          onClick={() => prev && goTo(prev.id)}
           className="min-h-12 flex-1 rounded-card border border-line text-small font-medium
                      active:bg-sunken disabled:opacity-40"
         >
@@ -180,7 +209,7 @@ export default function StudyToday() {
         <button
           type="button"
           disabled={!next}
-          onClick={() => next && setViewingId(next.id)}
+          onClick={() => next && goTo(next.id)}
           className="min-h-12 flex-1 rounded-card border border-line text-small font-medium
                      active:bg-sunken disabled:opacity-40"
         >
@@ -197,7 +226,7 @@ export default function StudyToday() {
                 <OverdueRow
                   session={session}
                   week={study.data.weekByNumber.get(session.week_number)}
-                  onOpen={() => setViewingId(session.id)}
+                  onOpen={() => goTo(session.id)}
                 />
               </li>
             ))}
@@ -235,5 +264,89 @@ function OverdueRow({
         {describeTiming(timingFor(session))}
       </span>
     </button>
+  )
+}
+
+
+/** The one check-off and the one notes field for a session.
+ *
+ *  Both save together: marking complete writes whatever is in the box at the
+ *  same time, so a note can never be left behind unsaved by tapping the big
+ *  button. Once a session is done the primary action becomes "Save notes" and
+ *  only lights up when the text has actually changed -- same dirty check the
+ *  workout log uses. */
+function SessionActions({
+  session,
+  busy,
+  error,
+  draft,
+  onDraft,
+  onSubmit,
+}: {
+  session: StudySession
+  busy: boolean
+  error: string | null
+  draft: string | null
+  onDraft: (v: string) => void
+  onSubmit: (completed: boolean, notes: string) => void
+}) {
+  const notes = draft ?? session.notes
+  const dirty = notes !== session.notes
+
+  return (
+    <div className="mt-5">
+      <label className="block">
+        <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
+          Notes
+        </span>
+        <textarea
+          value={notes}
+          onChange={(e) => onDraft(e.target.value)}
+          rows={4}
+          placeholder="How it went, what to pick up next time."
+          className="mt-1 w-full rounded-card border border-line bg-surface p-3 text-body
+                     outline-none focus:border-line-strong"
+        />
+      </label>
+
+      {error && (
+        <p className="mt-3 rounded-card bg-sunken p-3 text-small text-muted">
+          Couldn&rsquo;t save: {error}
+        </p>
+      )}
+
+      {session.completed ? (
+        <>
+          <button
+            type="button"
+            onClick={() => onSubmit(true, notes)}
+            disabled={busy || !dirty}
+            className="mt-3 flex min-h-14 w-full items-center justify-center rounded-card bg-accent
+                       px-4 text-body font-semibold text-white active:opacity-90 disabled:opacity-40"
+          >
+            {busy ? 'Saving…' : dirty ? 'Save notes' : 'Notes saved'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(false, notes)}
+            disabled={busy}
+            className="mt-2 min-h-12 w-full rounded-card text-small text-muted active:bg-sunken
+                       disabled:opacity-40"
+          >
+            Mark not done
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onSubmit(true, notes)}
+          disabled={busy}
+          className="mt-3 flex min-h-16 w-full items-center justify-center rounded-card bg-accent
+                     px-4 text-heading font-semibold text-white active:opacity-90 disabled:opacity-60"
+        >
+          {busy ? 'Saving…' : 'Mark complete'}
+        </button>
+      )}
+    </div>
   )
 }

@@ -168,10 +168,13 @@ export function timingFor(session: StudySession, today: string = todayIso()): Ti
   return { status: 'upcoming', days: delta }
 }
 
-export function describeTiming(timing: Timing): string {
+/** "not done" is only true of a session that isn't -- a late session that has
+ *  since been completed should read as the date, nothing more. */
+export function describeTiming(timing: Timing, completed = false): string {
   if (timing.status === 'today') return 'Today'
   if (timing.status === 'overdue') {
-    return timing.days === 1 ? 'Yesterday, not done' : `${timing.days} days ago, not done`
+    const when = timing.days === 1 ? 'Yesterday' : `${timing.days} days ago`
+    return completed ? when : `${when}, not done`
   }
   return timing.days === 1 ? 'Tomorrow' : `In ${timing.days} days`
 }
@@ -207,4 +210,86 @@ export function monthHasNoAssignments(data: StudyData, iso: string): boolean {
   const month = monthForDate(data, iso)
   if (!month) return false
   return weeksForMonth(data, month.month_number).length === 0
+}
+
+// --- writing ----------------------------------------------------------------
+
+/** Patch one session. Only the three fields the Today screen owns.
+ *
+ *  completed_at is derived here rather than taken from the caller: it is set
+ *  when a session is marked done and cleared when that is undone, so the two
+ *  can never disagree. */
+export async function updateSession(
+  id: string,
+  patch: { completed?: boolean; notes?: string },
+): Promise<void> {
+  const row: Record<string, unknown> = {}
+  if (patch.notes !== undefined) row.notes = patch.notes
+  if (patch.completed !== undefined) {
+    row.completed = patch.completed
+    row.completed_at = patch.completed ? new Date().toISOString() : null
+  }
+
+  const { error } = await supabase.from('study_sessions').update(row).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/** Sessions done, out of sessions whose date has passed. The simple count,
+ *  rather than a second streak engine -- the workout streak answers "did this
+ *  week reach four of anything", which is not the question a fixed three-a-week
+ *  calendar asks. */
+export function progressSoFar(
+  sessions: StudySession[],
+  today: string = todayIso(),
+): { completed: number; elapsed: number } {
+  const elapsed = sessions.filter((s) => s.session_date <= today)
+  return {
+    completed: elapsed.filter((s) => s.completed).length,
+    elapsed: elapsed.length,
+  }
+}
+
+// --- weeks ------------------------------------------------------------------
+
+export function sessionsForWeek(sessions: StudySession[], weekNumber: number): StudySession[] {
+  return sessions
+    .filter((s) => s.week_number === weekNumber)
+    .sort((a, b) => (a.session_date < b.session_date ? -1 : 1))
+}
+
+/** The week a date falls inside, Monday to Friday inclusive. Null on a weekend
+ *  or outside the weeks written out so far. */
+export function weekContaining(weeks: StudyWeek[], iso: string): StudyWeek | null {
+  return weeks.find((w) => iso >= w.start_date && iso <= w.end_date) ?? null
+}
+
+/** The week to open the Week view on: the one we're in, else the one holding
+ *  whatever is up next, else the first. */
+export function defaultWeek(data: StudyData, today: string = todayIso()): StudyWeek | null {
+  const current = weekContaining(data.weeks, today)
+  if (current) return current
+
+  const next = nextIncomplete(data.sessions)
+  if (next) return data.weekByNumber.get(next.week_number) ?? null
+
+  return data.weeks[data.weeks.length - 1] ?? null
+}
+
+/** "Oct 5 – 9" or "Sep 28 – Oct 2" when a week straddles a month. */
+export function formatWeekRange(week: StudyWeek): string {
+  const a = localDate(week.start_date)
+  const b = localDate(week.end_date)
+  const month = (d: Date) => MONTH_ABBR[d.getMonth()]
+  return a.getMonth() === b.getMonth()
+    ? `${month(a)} ${a.getDate()} – ${b.getDate()}`
+    : `${month(a)} ${a.getDate()} – ${month(b)} ${b.getDate()}`
+}
+
+/** How many months have weeks written out, for the Arc view. */
+export function weekCountByMonth(data: StudyData): Map<number, number> {
+  const counts = new Map<number, number>()
+  for (const w of data.weeks) {
+    counts.set(w.month_number, (counts.get(w.month_number) ?? 0) + 1)
+  }
+  return counts
 }

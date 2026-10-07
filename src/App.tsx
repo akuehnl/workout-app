@@ -12,7 +12,8 @@ import LogNew from './screens/LogNew'
 import Body from './screens/Body'
 import Hub from './screens/Hub'
 import StudyToday from './screens/StudyToday'
-import StudyComingNext from './screens/StudyComingNext'
+import StudyWeekView from './screens/StudyWeekView'
+import StudyArc from './screens/StudyArc'
 import { BUILD_ID, fetchDeployedBuildId } from './lib/version'
 
 const CHECK_EVERY_MS = 5 * 60 * 1000
@@ -107,24 +108,8 @@ export default function App() {
           {/* Scripture study */}
           <Route path="/study" element={<Navigate to="/study/today" replace />} />
           <Route path="/study/today" element={<StudyToday />} />
-          <Route
-            path="/study/week"
-            element={
-              <StudyComingNext
-                title="Week"
-                body="The three sessions of a week side by side with their completion state, and arrows to move between weeks. Coming in the next step."
-              />
-            }
-          />
-          <Route
-            path="/study/arc"
-            element={
-              <StudyComingNext
-                title="Arc"
-                body="The whole 24-month table from Oct 2026 to Sep 2028, current month highlighted and gap months marked. Coming in the next step."
-              />
-            }
-          />
+          <Route path="/study/week" element={<StudyWeekView />} />
+          <Route path="/study/arc" element={<StudyArc />} />
 
           {/* Paths from before the menu existed, so nothing bookmarked breaks. */}
           <Route path="/today" element={<Navigate to="/workout/today" replace />} />

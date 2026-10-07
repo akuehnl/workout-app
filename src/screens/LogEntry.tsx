@@ -31,7 +31,7 @@ export default function LogEntry() {
         <Card className="p-4">
           <p className="text-small text-muted">
             That session isn&rsquo;t in the log.{' '}
-            <Link to="/log" className="font-medium text-accent underline underline-offset-2">
+            <Link to="/workout/log" className="font-medium text-accent underline underline-offset-2">
               Back to the log
             </Link>
           </p>
@@ -102,7 +102,7 @@ function Editor({
       if (rows.length > 0) {
         await updateLogItems(rows.map((r) => ({ id: r.id, checked: r.checked, notes: r.notes })))
       }
-      navigate('/log', { replace: true })
+      navigate('/workout/log', { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(null)
@@ -114,7 +114,7 @@ function Editor({
     setError(null)
     try {
       await deleteLog(log.id)
-      navigate('/log', { replace: true })
+      navigate('/workout/log', { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(null)
@@ -124,7 +124,7 @@ function Editor({
   return (
     <Screen title={workoutName} subtitle={`${log.date} · ${relativeDay(log.date)}`}>
       <div className="mb-4">
-        <Link to="/log" className="text-small font-medium text-muted underline underline-offset-2">
+        <Link to="/workout/log" className="text-small font-medium text-muted underline underline-offset-2">
           ← All sessions
         </Link>
       </div>

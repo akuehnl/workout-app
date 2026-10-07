@@ -10,6 +10,9 @@ import Log from './screens/Log'
 import LogEntry from './screens/LogEntry'
 import LogNew from './screens/LogNew'
 import Body from './screens/Body'
+import Hub from './screens/Hub'
+import StudyToday from './screens/StudyToday'
+import StudyComingNext from './screens/StudyComingNext'
 import { BUILD_ID, fetchDeployedBuildId } from './lib/version'
 
 const CHECK_EVERY_MS = 5 * 60 * 1000
@@ -77,7 +80,7 @@ function useAutoUpdate(enabled: boolean) {
 export default function App() {
   // The runner is full-screen: no tab bar competing for thumb room, and no way
   // to wander off mid-set by accident. It has its own way back to Today.
-  const isRunner = useLocation().pathname.startsWith('/run/')
+  const isRunner = useLocation().pathname.startsWith('/workout/run/')
   useAutoUpdate(!isRunner)
 
   return (
@@ -85,17 +88,53 @@ export default function App() {
       {/* pb leaves room for the fixed tab bar plus the phone's home indicator */}
       <main className={isRunner ? 'min-h-dvh pb-8' : 'min-h-dvh pb-28'}>
         <Routes>
-          <Route path="/" element={<Navigate to="/today" replace />} />
-          <Route path="/today" element={<Today />} />
-          <Route path="/log" element={<Log />} />
-          <Route path="/log/new" element={<LogNew />} />
-          <Route path="/log/:logId" element={<LogEntry />} />
-          <Route path="/run/:sortOrder" element={<Run />} />
-          <Route path="/program" element={<Program />} />
-          <Route path="/program/:sortOrder" element={<WorkoutDetail />} />
-          <Route path="/streaks" element={<Streaks />} />
-          <Route path="/body" element={<Body />} />
-          <Route path="*" element={<Navigate to="/today" replace />} />
+          {/* The menu. Sections sit behind it so the bottom nav never has to
+              grow past the four tabs that fit a phone. */}
+          <Route path="/" element={<Hub />} />
+
+          {/* Workout */}
+          <Route path="/workout" element={<Navigate to="/workout/today" replace />} />
+          <Route path="/workout/today" element={<Today />} />
+          <Route path="/workout/log" element={<Log />} />
+          <Route path="/workout/log/new" element={<LogNew />} />
+          <Route path="/workout/log/:logId" element={<LogEntry />} />
+          <Route path="/workout/run/:sortOrder" element={<Run />} />
+          <Route path="/workout/program" element={<Program />} />
+          <Route path="/workout/program/:sortOrder" element={<WorkoutDetail />} />
+          <Route path="/workout/streaks" element={<Streaks />} />
+          <Route path="/workout/body" element={<Body />} />
+
+          {/* Scripture study */}
+          <Route path="/study" element={<Navigate to="/study/today" replace />} />
+          <Route path="/study/today" element={<StudyToday />} />
+          <Route
+            path="/study/week"
+            element={
+              <StudyComingNext
+                title="Week"
+                body="The three sessions of a week side by side with their completion state, and arrows to move between weeks. Coming in the next step."
+              />
+            }
+          />
+          <Route
+            path="/study/arc"
+            element={
+              <StudyComingNext
+                title="Arc"
+                body="The whole 24-month table from Oct 2026 to Sep 2028, current month highlighted and gap months marked. Coming in the next step."
+              />
+            }
+          />
+
+          {/* Paths from before the menu existed, so nothing bookmarked breaks. */}
+          <Route path="/today" element={<Navigate to="/workout/today" replace />} />
+          <Route path="/log" element={<Navigate to="/workout/log" replace />} />
+          <Route path="/log/new" element={<Navigate to="/workout/log/new" replace />} />
+          <Route path="/program" element={<Navigate to="/workout/program" replace />} />
+          <Route path="/streaks" element={<Navigate to="/workout/streaks" replace />} />
+          <Route path="/body" element={<Navigate to="/workout/body" replace />} />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
       {!isRunner && <TabBar />}

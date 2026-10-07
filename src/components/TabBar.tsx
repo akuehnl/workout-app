@@ -1,21 +1,40 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 
-const TABS = [
-  { to: '/today', label: 'Today' },
-  { to: '/program', label: 'Program' },
-  { to: '/streaks', label: 'Streaks' },
-  { to: '/body', label: 'Body' },
-]
+/** Each section carries its own bottom nav, so the bar never grows past what
+ *  fits a phone however many sections get added to the menu. */
+const SECTION_TABS: Record<string, { to: string; label: string }[]> = {
+  workout: [
+    { to: '/workout/today', label: 'Today' },
+    { to: '/workout/program', label: 'Program' },
+    { to: '/workout/streaks', label: 'Streaks' },
+    { to: '/workout/body', label: 'Body' },
+  ],
+  study: [
+    { to: '/study/today', label: 'Today' },
+    { to: '/study/week', label: 'Week' },
+    { to: '/study/arc', label: 'Arc' },
+  ],
+}
+
+export function sectionFromPath(pathname: string): string | null {
+  const first = pathname.split('/')[1] ?? ''
+  return first in SECTION_TABS ? first : null
+}
 
 export default function TabBar() {
+  const section = sectionFromPath(useLocation().pathname)
+  if (!section) return null // the menu has no tabs of its own
+
+  const tabs = SECTION_TABS[section]!
+
   return (
     <nav
-      aria-label="Main"
+      aria-label={`${section} sections`}
       className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-surface/95 backdrop-blur
                  pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="mx-auto flex w-full max-w-xl">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <li key={tab.to} className="flex-1">
             <NavLink
               to={tab.to}

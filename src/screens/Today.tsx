@@ -61,7 +61,7 @@ export default function Today() {
     <Screen title="Today">
       <div className="mb-4 flex items-center justify-between gap-3">
         <PhaseBadge phase={phaseState.phase} />
-        <Link to="/log" className="text-small font-medium text-muted underline underline-offset-2">
+        <Link to="/workout/log" className="text-small font-medium text-muted underline underline-offset-2">
           Log
         </Link>
       </div>
@@ -76,7 +76,7 @@ export default function Today() {
             Starting a different session replaces it.
           </p>
           <Link
-            to={`/run/${cachedWorkout.sort_order}`}
+            to={`/workout/run/${cachedWorkout.sort_order}`}
             className="mt-3 flex min-h-12 items-center justify-center rounded-card bg-accent
                        px-4 text-body font-semibold text-white active:opacity-90"
           >
@@ -126,7 +126,7 @@ export default function Today() {
             return (
               <li key={w.id}>
                 <Link
-                  to={`/run/${w.sort_order}`}
+                  to={`/workout/run/${w.sort_order}`}
                   className="flex min-h-16 items-center gap-3 rounded-card border border-line
                              bg-surface px-4 py-3 active:bg-sunken"
                 >
@@ -211,7 +211,7 @@ function NextCard({
       )}
 
       <Link
-        to={`/run/${workout.sort_order}`}
+        to={`/workout/run/${workout.sort_order}`}
         className="mt-4 flex min-h-16 items-center justify-center rounded-card bg-accent px-4
                    text-heading font-semibold text-white active:opacity-90"
       >

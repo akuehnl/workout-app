@@ -45,7 +45,7 @@ export default function LogNew() {
         sessionNotes: notes,
         blocks: chosen ? flattenWorkout(chosen) : [],
       })
-      navigate('/log', { replace: true })
+      navigate('/workout/log', { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setSaving(false)
@@ -58,7 +58,7 @@ export default function LogNew() {
       subtitle="For one you did away from the app, so the week still counts it."
     >
       <div className="mb-4">
-        <Link to="/log" className="text-small font-medium text-muted underline underline-offset-2">
+        <Link to="/workout/log" className="text-small font-medium text-muted underline underline-offset-2">
           ← All sessions
         </Link>
       </div>

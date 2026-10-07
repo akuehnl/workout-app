@@ -20,7 +20,7 @@ export default function Log() {
 
   const addButton = (
     <Link
-      to="/log/new"
+      to="/workout/log/new"
       className="flex min-h-14 items-center justify-center rounded-card border border-line
                  bg-surface px-4 text-body font-medium active:bg-sunken"
     >
@@ -38,7 +38,7 @@ export default function Log() {
             wrote, per movement and for the session as a whole.
           </p>
           <Link
-            to="/today"
+            to="/workout/today"
             className="mt-3 flex min-h-14 items-center justify-center rounded-card bg-ink px-4
                        text-body font-semibold text-white active:opacity-90"
           >
@@ -70,7 +70,7 @@ export default function Log() {
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="min-w-0 truncate text-heading font-semibold">{name}</h2>
                 <Link
-                  to={`/log/${log.id}`}
+                  to={`/workout/log/${log.id}`}
                   className="shrink-0 rounded px-1 text-small font-medium text-accent underline
                              decoration-accent/30 underline-offset-2"
                   aria-label={`Open ${name} from ${log.date}`}

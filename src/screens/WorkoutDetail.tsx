@@ -35,7 +35,7 @@ export default function WorkoutDetail() {
         <Card className="p-4">
           <p className="text-small text-muted">
             There&rsquo;s no session {sortOrder}.{' '}
-            <Link to="/program" className="font-medium text-accent underline underline-offset-2">
+            <Link to="/workout/program" className="font-medium text-accent underline underline-offset-2">
               Back to the program
             </Link>
             .
@@ -69,7 +69,7 @@ export default function WorkoutDetail() {
       <div className="mb-5 flex items-center justify-between gap-3">
         <PhaseBadge phase={phaseState.phase} />
         <Link
-          to="/program"
+          to="/workout/program"
           className="text-small font-medium text-muted underline underline-offset-2"
         >
           All sessions

@@ -38,7 +38,7 @@ export default function Program() {
           return (
             <li key={w.id}>
               <Link
-                to={`/program/${w.sort_order}`}
+                to={`/workout/program/${w.sort_order}`}
                 className="flex min-h-16 items-center gap-4 rounded-card border border-line
                            bg-surface px-4 py-3 active:bg-sunken"
               >

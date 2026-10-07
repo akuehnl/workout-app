@@ -43,7 +43,7 @@ export default function Run() {
         <Card className="p-4">
           <p className="text-small text-muted">
             There&rsquo;s no session {sortOrder}.{' '}
-            <Link to="/today" className="font-medium text-accent underline underline-offset-2">
+            <Link to="/workout/today" className="font-medium text-accent underline underline-offset-2">
               Back to Today
             </Link>
           </p>
@@ -160,7 +160,7 @@ function RunSession({
         })),
       })
       clearRun()
-      navigate('/today', { replace: true })
+      navigate('/workout/today', { replace: true })
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e))
       setSaving(false)
@@ -270,7 +270,7 @@ function RunSession({
 
   const header = (
     <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3 px-4 pt-4">
-      <Link to="/today" className="min-h-11 py-2 text-small text-muted">
+      <Link to="/workout/today" className="min-h-11 py-2 text-small text-muted">
         ← Today
       </Link>
       <span className="truncate text-small font-medium">{workout.name}</span>

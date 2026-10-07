@@ -32,7 +32,7 @@ export default function Streaks() {
             how many weeks in a row you&rsquo;ve hit four, and a week-by-week history.
           </p>
           <Link
-            to="/today"
+            to="/workout/today"
             className="mt-3 flex min-h-14 items-center justify-center rounded-card bg-ink px-4
                        text-body font-semibold text-white active:opacity-90"
           >

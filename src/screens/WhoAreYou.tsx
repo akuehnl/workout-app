@@ -5,12 +5,15 @@ import { Card, ErrorState, Loading, Screen } from '../components/Ui'
 /** The name picker. Deliberately not called a login: it sets a display
  *  preference on this device and authorises nothing. */
 export default function WhoAreYou() {
-  const { status, message, users, pick, usersAvailable } = useUsers()
+  const { status, message, users, pick, usersAvailable, current } = useUsers()
 
   if (status === 'loading') return <Loading what="users" />
   if (status === 'error') return <ErrorState message={message ?? 'Could not load users.'} />
   // Nothing to choose between until 012 has been run.
   if (!usersAvailable) return <Navigate to="/" replace />
+  // Once a name is picked, get out of the way. Without this the picker stayed
+  // on screen after a tap and looked like it had done nothing.
+  if (current) return <Navigate to="/" replace />
 
   return (
     <Screen title="Who's using this?" subtitle="Picks which sections this device shows.">

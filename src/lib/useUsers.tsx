@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 import { configError } from './supabase'
 import {
   clearPickedUserId,
@@ -14,8 +22,6 @@ type State = {
   message: string | null
   users: AppUser[]
   grants: Map<string, Set<SectionKey>>
-  /** Whoever this device picked, once the directory has loaded. */
-  current: AppUser | null
   /** False until 012 has been run. The app then behaves as it did before
    *  users existed: one implicit admin, every section, no picker. */
   usersAvailable: boolean
@@ -32,6 +38,10 @@ const IMPLICIT_ADMIN: AppUser = {
 }
 
 type Ctx = State & {
+  /** Whoever this device picked. Derived from the stored id rather than held
+   *  in state, so picking a name takes effect immediately instead of waiting
+   *  on another round trip to the server. */
+  current: AppUser | null
   pick: (id: string) => void
   switchUser: () => void
   reload: () => void
@@ -47,7 +57,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     message: null,
     users: [],
     grants: new Map(),
-    current: null,
     usersAvailable: false,
   })
   const [pickedId, setPickedId] = useState<string | null>(() => loadPickedUserId())
@@ -71,9 +80,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
           message: null,
           users,
           grants,
-          // A stored id that no longer matches a row falls back to unpicked
-          // rather than leaving the app in a broken half-state.
-          current: users.find((u) => u.id === pickedId) ?? null,
           usersAvailable: true,
         })
       })
@@ -88,7 +94,6 @@ export function UsersProvider({ children }: { children: ReactNode }) {
           message: e instanceof Error ? e.message : String(e),
           users: [],
           grants: new Map(),
-          current: IMPLICIT_ADMIN,
           usersAvailable: false,
         })
       })
@@ -96,7 +101,14 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [nonce, pickedId])
+  }, [nonce])
+
+  // A stored id that no longer matches a row reads as unpicked rather than
+  // leaving the app in a broken half-state.
+  const current = useMemo<AppUser | null>(() => {
+    if (!state.usersAvailable) return IMPLICIT_ADMIN
+    return state.users.find((u) => u.id === pickedId) ?? null
+  }, [state.usersAvailable, state.users, pickedId])
 
   const pick = useCallback((id: string) => {
     savePickedUserId(id)
@@ -109,7 +121,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <UsersContext.Provider value={{ ...state, pick, switchUser, reload }}>
+    <UsersContext.Provider value={{ ...state, current, pick, switchUser, reload }}>
       {children}
     </UsersContext.Provider>
   )

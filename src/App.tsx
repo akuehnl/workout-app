@@ -14,6 +14,10 @@ import Hub from './screens/Hub'
 import StudyToday from './screens/StudyToday'
 import StudyWeekView from './screens/StudyWeekView'
 import StudyArc from './screens/StudyArc'
+import WhoAreYou from './screens/WhoAreYou'
+import Users from './screens/Users'
+import Gated from './components/Gated'
+import HomeComingNext from './screens/HomeComingNext'
 import { BUILD_ID, fetchDeployedBuildId } from './lib/version'
 
 const CHECK_EVERY_MS = 5 * 60 * 1000
@@ -92,24 +96,50 @@ export default function App() {
           {/* The menu. Sections sit behind it so the bottom nav never has to
               grow past the four tabs that fit a phone. */}
           <Route path="/" element={<Hub />} />
+          <Route path="/who" element={<WhoAreYou />} />
+          <Route path="/users" element={<Users />} />
 
           {/* Workout */}
           <Route path="/workout" element={<Navigate to="/workout/today" replace />} />
-          <Route path="/workout/today" element={<Today />} />
-          <Route path="/workout/log" element={<Log />} />
-          <Route path="/workout/log/new" element={<LogNew />} />
-          <Route path="/workout/log/:logId" element={<LogEntry />} />
-          <Route path="/workout/run/:sortOrder" element={<Run />} />
-          <Route path="/workout/program" element={<Program />} />
-          <Route path="/workout/program/:sortOrder" element={<WorkoutDetail />} />
-          <Route path="/workout/streaks" element={<Streaks />} />
-          <Route path="/workout/body" element={<Body />} />
+          <Route path="/workout/today" element={<Gated section="workout"><Today /></Gated>} />
+          <Route path="/workout/log" element={<Gated section="workout"><Log /></Gated>} />
+          <Route path="/workout/log/new" element={<Gated section="workout"><LogNew /></Gated>} />
+          <Route path="/workout/log/:logId" element={<Gated section="workout"><LogEntry /></Gated>} />
+          <Route path="/workout/run/:sortOrder" element={<Gated section="workout"><Run /></Gated>} />
+          <Route path="/workout/program" element={<Gated section="workout"><Program /></Gated>} />
+          <Route path="/workout/program/:sortOrder" element={<Gated section="workout"><WorkoutDetail /></Gated>} />
+          <Route path="/workout/streaks" element={<Gated section="workout"><Streaks /></Gated>} />
+          <Route path="/workout/body" element={<Gated section="workout"><Body /></Gated>} />
 
           {/* Scripture study */}
           <Route path="/study" element={<Navigate to="/study/today" replace />} />
-          <Route path="/study/today" element={<StudyToday />} />
-          <Route path="/study/week" element={<StudyWeekView />} />
-          <Route path="/study/arc" element={<StudyArc />} />
+          <Route path="/study/today" element={<Gated section="study"><StudyToday /></Gated>} />
+          <Route path="/study/week" element={<Gated section="study"><StudyWeekView /></Gated>} />
+          <Route path="/study/arc" element={<Gated section="study"><StudyArc /></Gated>} />
+
+          {/* Home sections. The lists themselves land in the next pass. */}
+          <Route
+            path="/home-todo"
+            element={
+              <Gated section="home-todo">
+                <HomeComingNext
+                  title="Home to-do"
+                  body="The shared list: add an errand with a due date, assign it to either of you or to nobody, and tick it off. Coming next."
+                />
+              </Gated>
+            }
+          />
+          <Route
+            path="/home-maintenance"
+            element={
+              <Gated section="home-maintenance">
+                <HomeComingNext
+                  title="Home maintenance"
+                  body="Upkeep and improvements, with repeating jobs that roll their due date forward from the day you actually did them, and a log of when each was last done. Coming next."
+                />
+              </Gated>
+            }
+          />
 
           {/* Paths from before the menu existed, so nothing bookmarked breaks. */}
           <Route path="/today" element={<Navigate to="/workout/today" replace />} />

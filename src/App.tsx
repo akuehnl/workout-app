@@ -17,7 +17,7 @@ import StudyArc from './screens/StudyArc'
 import WhoAreYou from './screens/WhoAreYou'
 import Users from './screens/Users'
 import Gated from './components/Gated'
-import HomeComingNext from './screens/HomeComingNext'
+import HomeTasks from './screens/HomeTasks'
 import { BUILD_ID, fetchDeployedBuildId } from './lib/version'
 
 const CHECK_EVERY_MS = 5 * 60 * 1000
@@ -117,15 +117,13 @@ export default function App() {
           <Route path="/study/week" element={<Gated section="study"><StudyWeekView /></Gated>} />
           <Route path="/study/arc" element={<Gated section="study"><StudyArc /></Gated>} />
 
-          {/* Home sections. The lists themselves land in the next pass. */}
+          {/* Home sections. One table, two categories -- the screen is the
+              same component parameterised by which list it is showing. */}
           <Route
             path="/home-todo"
             element={
               <Gated section="home-todo">
-                <HomeComingNext
-                  title="Home to-do"
-                  body="The shared list: add an errand with a due date, assign it to either of you or to nobody, and tick it off. Coming next."
-                />
+                <HomeTasks category="todo" />
               </Gated>
             }
           />
@@ -133,10 +131,7 @@ export default function App() {
             path="/home-maintenance"
             element={
               <Gated section="home-maintenance">
-                <HomeComingNext
-                  title="Home maintenance"
-                  body="Upkeep and improvements, with repeating jobs that roll their due date forward from the day you actually did them, and a log of when each was last done. Coming next."
-                />
+                <HomeTasks category="maintenance" />
               </Gated>
             }
           />

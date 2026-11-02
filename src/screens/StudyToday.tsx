@@ -4,19 +4,17 @@ import { useStudy } from '../lib/useStudy'
 import {
   DAY_LABEL,
   SESSION_KIND,
-  describeTiming,
   esvUrl,
   formatLongDate,
   monthForDate,
   monthHasNoAssignments,
   nextIncomplete,
-  overdueSessions,
   sessionIndex,
-  timingFor,
-  updateSession,
+  sessionsRemaining,
   todayIso,
+  updateSession,
+  weeksRemaining,
   type StudySession,
-  type StudyWeek,
 } from '../lib/study'
 import { Card, ErrorState, Loading, Screen, SectionLabel } from '../components/Ui'
 
@@ -88,11 +86,11 @@ export default function StudyToday() {
 
   const week = study.data.weekByNumber.get(viewing.week_number)
   const month = week ? study.data.monthByNumber.get(week.month_number) : undefined
-  const timing = timingFor(viewing, today)
   const index = sessionIndex(sessions, viewing.id)
   const prev = index > 0 ? sessions[index - 1]! : null
   const next = index < sessions.length - 1 ? sessions[index + 1]! : null
-  const stillOverdue = overdueSessions(sessions, today).filter((s) => s.id !== viewing.id)
+  const weeksLeft = weeksRemaining(study.data, today)
+  const left = sessionsRemaining(sessions)
   const noAssignments = monthHasNoAssignments(study.data, today)
 
   return (
@@ -103,7 +101,7 @@ export default function StudyToday() {
         <Card className="mb-3 p-4">
           <p className="text-small text-muted">
             No assignments yet for {monthForDate(study.data, today)?.month_label ?? 'this month'}.
-            Showing the next session still outstanding.
+            Showing the next session in the plan.
           </p>
         </Card>
       )}
@@ -111,7 +109,7 @@ export default function StudyToday() {
       <Card className="p-5">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
-            {describeTiming(timing, viewing.completed)}
+            {viewing.completed ? 'Completed' : viewing.id === upNext?.id ? 'Up next' : 'Session'}
           </span>
           {viewing.completed && (
             <span className="rounded-pill bg-accent-soft px-2.5 py-1 text-label font-semibold text-accent-ink">
@@ -217,56 +215,32 @@ export default function StudyToday() {
         </button>
       </div>
 
-      {stillOverdue.length > 0 && (
-        <div className="mt-6">
-          <SectionLabel>Still outstanding</SectionLabel>
-          <ul className="mt-2 space-y-2">
-            {stillOverdue.map((session) => (
-              <li key={session.id}>
-                <OverdueRow
-                  session={session}
-                  week={study.data.weekByNumber.get(session.week_number)}
-                  onOpen={() => goTo(session.id)}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <Card className="mt-6 p-4">
+        <p className="text-label font-semibold uppercase tracking-[0.06em] text-faint">
+          Remaining
+        </p>
+        <p className="mt-1 text-small">
+          {weeksLeft === null ? 'Plan length unknown.' : (
+            <>
+              <span className="font-[family-name:var(--font-stamp)] font-semibold tabular-nums">
+                {weeksLeft}
+              </span>{' '}
+              {weeksLeft === 1 ? 'week' : 'weeks'} of the plan left
+            </>
+          )}
+        </p>
+        <p className="mt-1 text-small text-muted">
+          {left.left} of {left.total} written sessions still to do.
+        </p>
+        <p className="mt-2 text-small text-faint">
+          Sessions are not tied to the day they were scheduled — work through them in order at
+          whatever pace you keep.
+        </p>
+      </Card>
+
     </Screen>
   )
 }
-
-function OverdueRow({
-  session,
-  week,
-  onOpen,
-}: {
-  session: StudySession
-  week: StudyWeek | undefined
-  onOpen: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex min-h-14 w-full items-center gap-3 rounded-card border border-line
-                 bg-surface px-4 py-3 text-left active:bg-sunken"
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{SESSION_KIND[session.day]}</span>
-        <span className="block truncate text-small text-muted">
-          {DAY_LABEL[session.day]} &middot; {formatLongDate(session.session_date)}
-          {week && <> &middot; {week.memory_verse_code}</>}
-        </span>
-      </span>
-      <span className="shrink-0 text-small text-faint">
-        {describeTiming(timingFor(session))}
-      </span>
-    </button>
-  )
-}
-
 
 /** The one check-off and the one notes field for a session.
  *

@@ -161,7 +161,6 @@ function SessionRow({
   onOpen: () => void
 }) {
   const isToday = session.session_date === today
-  const late = !session.completed && session.session_date < today
 
   return (
     <button
@@ -186,7 +185,6 @@ function SessionRow({
         <span className="block font-medium">
           {SESSION_KIND[session.day]}
           {isToday && <span className="ml-2 text-small font-normal text-accent">today</span>}
-          {late && <span className="ml-2 text-small font-normal text-muted">not done</span>}
         </span>
         <span className="block text-small text-muted">
           {DAY_LABEL[session.day]} &middot; {session.session_date} &middot;{' '}

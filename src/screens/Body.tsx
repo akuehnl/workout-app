@@ -22,13 +22,16 @@ import {
   type MetricField,
   type MetricValues,
 } from '../lib/metrics'
+import { fitQuality, type WindowKey } from '../lib/regression'
 import {
-  chartEndDate,
-  evaluateAll,
-  fitQuality,
-  type WindowKey,
-  type WindowState,
-} from '../lib/regression'
+  MODELS,
+  chartEndDateFor,
+  evaluateAllFor,
+  modelFor,
+  polyAt,
+  type ModelKind,
+  type ModelWindowState,
+} from '../lib/polyfit'
 import type { TrendLine } from '../lib/metrics'
 import WeightChart from '../components/WeightChart'
 import { Card, ErrorState, Loading, Screen, SectionLabel } from '../components/Ui'
@@ -83,6 +86,7 @@ export default function Body() {
   const [draft, setDraft] = useState<Draft>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeWindow, setActiveWindow] = useState<WindowKey | null>(null)
+  const [model, setModel] = useState<ModelKind>('linear')
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -140,15 +144,14 @@ export default function Body() {
 
   const latest = latestAndPrevious(visible, field)
   const today = localDateString()
-  const windows = evaluateAll(points, goalNumber, today)
+  const windows = evaluateAllFor(points, model, goalNumber, today)
   const active = windows.find((w) => w.key === activeWindow && w.status === 'ready')
   const trend: TrendLine | null =
     active && active.status === 'ready'
       ? {
-          slopePerDay: active.fit.slopePerDay,
-          intercept: active.fit.intercept,
+          at: (day) => polyAt(active.fit, day),
           fromDate: active.fit.firstDate,
-          throughDate: chartEndDate(active, today) ?? active.fit.lastDate,
+          throughDate: chartEndDateFor(active, today) ?? active.fit.lastDate,
           todayDate: today,
         }
       : null
@@ -348,6 +351,35 @@ export default function Body() {
           <SectionLabel>Projection</SectionLabel>
           <Card className="mt-2 p-4">
             <div className="flex gap-2">
+              {MODELS.map((m) => {
+                const on = model === m.kind
+                return (
+                  <button
+                    key={m.kind}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setModel(m.kind)}
+                    className={`min-h-11 flex-1 rounded-card border text-small font-medium ${
+                      on
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-line bg-surface active:bg-sunken'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {model !== 'linear' && (
+              <p className="mt-2 text-small text-faint">
+                A curve always fits the past better than a line — it has more freedom to bend.
+                That doesn&rsquo;t make it a better guess about the future, and the further out it
+                runs the less it should be trusted.
+              </p>
+            )}
+
+            <div className="mt-3 flex gap-2">
               {windows.map((w) => {
                 const ready = w.status === 'ready'
                 const on = activeWindow === w.key && ready
@@ -379,6 +411,7 @@ export default function Body() {
                 goal={goalNumber}
                 unit={spec.unit}
                 label={spec.label}
+                modelLabel={modelFor(model).label}
               />
             ) : (
               <p className="mt-3 text-small text-muted">
@@ -392,7 +425,10 @@ export default function Body() {
               <p className="mt-2 text-small text-faint">
                 {locked.map((w) => w.key.toUpperCase()).join(' and ')}{' '}
                 {locked.length === 1 ? 'needs' : 'need'} more{' '}
-                {filterOn ? 'in-window ' : ''}history.
+                {filterOn ? 'in-window ' : ''}history
+                {locked.some((w) => w.status === 'insufficient' && w.needReadings > 0) &&
+                  ` — a ${modelFor(model).label.toLowerCase()} needs at least ${modelFor(model).minReadings} readings`}
+                .
               </p>
             )}
 
@@ -630,11 +666,13 @@ function ProjectionReadout({
   goal,
   unit,
   label,
+  modelLabel,
 }: {
-  state: Extract<WindowState, { status: 'ready' }>
+  state: Extract<ModelWindowState, { status: 'ready' }>
   goal: number | null
   unit: string
   label: string
+  modelLabel: string
 }) {
   const { fit, projection } = state
   const magnitude = Math.abs(Math.round(fit.perWeek * 100) / 100)
@@ -683,7 +721,7 @@ function ProjectionReadout({
       <p className="text-heading font-semibold">{headline}</p>
       {detail && <p className="mt-0.5 text-small text-muted">{detail}</p>}
       <p className="mt-2 text-small text-faint">
-        Fitted to {fit.readings} readings over {Math.round(fit.spanDays)} days ·{' '}
+        {modelLabel} fitted to {fit.readings} readings over {Math.round(fit.spanDays)} days ·{' '}
         {fitQuality(fit.r2)} fit (R² {fit.r2.toFixed(2)})
       </p>
     </div>

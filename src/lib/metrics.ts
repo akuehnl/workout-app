@@ -196,16 +196,22 @@ export type ChartGeometry = {
   todayX: number | null
 }
 
-/** A fitted line to draw. It spans only the readings it was fitted to and then
- *  forward -- extrapolating it back across data it never saw would put a steep
- *  two-week slope somewhere absurd a month ago. */
+/** A fitted model to draw. It spans only the readings it was fitted to and
+ *  then forward -- extrapolating it back across data it never saw would put a
+ *  steep two-week slope somewhere absurd a month ago.
+ *
+ *  `at` is the evaluator rather than a slope and intercept, so the same path
+ *  code draws a straight line and a polynomial curve. */
 export type TrendLine = {
-  slopePerDay: number
-  intercept: number
+  at: (day: number) => number
   fromDate: string
   throughDate: string
   todayDate: string
 }
+
+/** How many points to sample a trend at. A line needs two; a cubic over a year
+ *  needs enough that the curve doesn't look like a polygon. */
+const TREND_SAMPLES = 64
 
 const PAD = { top: 10, right: 10, bottom: 20, left: 32 }
 
@@ -258,15 +264,24 @@ export function buildChart(
 ): ChartGeometry | null {
   if (points.length === 0) return null
 
-  const trendAt = (day: number) => trend!.slopePerDay * day + trend!.intercept
+  // Sample the trend up front: a curve can bulge well past its endpoints, so
+  // the y-domain has to account for the whole drawn path, not just its ends.
+  const trendSamples: { day: number; value: number }[] = []
+  if (trend) {
+    const a = dayNumber(trend.fromDate)
+    const b = dayNumber(trend.throughDate)
+    const steps = Math.max(1, TREND_SAMPLES - 1)
+    for (let i = 0; i < TREND_SAMPLES; i++) {
+      const day = a + ((b - a) * i) / steps
+      trendSamples.push({ day, value: trend.at(day) })
+    }
+  }
 
   const values = points.map((p) => p.value)
-  // The goal has to be inside the domain or the line would sit off-canvas, and
-  // so do both ends of the trend line for the same reason.
+  // The goal has to be inside the domain or its line would sit off-canvas.
   const candidates = goal !== null ? [...values, goal] : [...values]
-  if (trend) {
-    candidates.push(trendAt(dayNumber(trend.fromDate)))
-    candidates.push(trendAt(dayNumber(trend.throughDate)))
+  for (const sample of trendSamples) {
+    if (Number.isFinite(sample.value)) candidates.push(sample.value)
   }
   let lo = Math.min(...candidates)
   let hi = Math.max(...candidates)
@@ -323,14 +338,15 @@ export function buildChart(
 
   let trendPath: string | null = null
   let todayX: number | null = null
-  if (trend) {
-    const fromMs = dateMs(trend.fromDate)
-    const throughMs = dateMs(trend.throughDate)
-    const y1v = trendAt(dayNumber(trend.fromDate))
-    const y2v = trendAt(dayNumber(trend.throughDate))
-    trendPath =
-      `M${Math.round(xOf(fromMs) * 10) / 10},${Math.round(yOf(y1v) * 10) / 10} ` +
-      `L${Math.round(xOf(throughMs) * 10) / 10},${Math.round(yOf(y2v) * 10) / 10}`
+  if (trend && trendSamples.length > 0) {
+    trendPath = trendSamples
+      .filter((sample) => Number.isFinite(sample.value))
+      .map((sample, i) => {
+        const x = Math.round(xOf(EPOCH + sample.day * DAY_MS) * 10) / 10
+        const y = Math.round(yOf(sample.value) * 10) / 10
+        return `${i === 0 ? 'M' : 'L'}${x},${y}`
+      })
+      .join(' ')
     todayX = Math.round(xOf(dateMs(trend.todayDate)) * 10) / 10
   }
 

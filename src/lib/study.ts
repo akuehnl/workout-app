@@ -293,3 +293,40 @@ export function weekCountByMonth(data: StudyData): Map<number, number> {
   }
   return counts
 }
+
+/* ---------------------------------------------------------------------------
+   How much is left.
+
+   The plan is calendar-dated, but being behind the calendar is not useful
+   information to be shown on every open -- it just accumulates. So the Today
+   view reports what is next and how much runway is left, and nothing about
+   lateness.
+   --------------------------------------------------------------------------- */
+
+/** Whole weeks between today and the last day the arc covers. Months are
+ *  seeded with a label like "Sep 2028"; the plan ends with the last day of the
+ *  final month. */
+export function weeksRemaining(data: StudyData, today: string = todayIso()): number | null {
+  const last = data.months[data.months.length - 1]
+  if (!last) return null
+
+  const parsed = last.month_label.match(/^([A-Za-z]{3})\s+(\d{4})$/)
+  if (!parsed) return null
+  const monthIndex = MONTH_ABBR.indexOf(parsed[1]!)
+  if (monthIndex < 0) return null
+
+  // Day 0 of the following month is the last day of this one.
+  const end = new Date(Number(parsed[2]), monthIndex + 1, 0)
+  const days = Math.round((end.getTime() - localDate(today).getTime()) / DAY_MS)
+  return Math.max(0, Math.ceil(days / 7))
+}
+
+/** Sessions still to do out of everything written out so far. Progress through
+ *  the content, which is the thing actually under your control -- unlike the
+ *  calendar. */
+export function sessionsRemaining(sessions: StudySession[]): { left: number; total: number } {
+  return {
+    left: sessions.filter((s) => !s.completed).length,
+    total: sessions.length,
+  }
+}
